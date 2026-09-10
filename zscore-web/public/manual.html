@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>供应商 Z-Score · 用户手册</title>
+<style>
+:root {
+  --bg: #f7f8fb;
+  --panel: #ffffff;
+  --ink: #1f2330;
+  --ink-soft: #5b6473;
+  --line: #d8dde6;
+  --line-soft: #e7ebf2;
+  --accent: #2563eb;
+  --accent-soft: #eff4ff;
+  --code-bg: #f1f3f8;
+  --code-ink: #26303e;
+  --ok: #16a34a;
+  --warn: #d97706;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.75 -apple-system, "PingFang SC", "Hiragino Sans GB",
+        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+}
+.wrap { max-width: 860px; margin: 0 auto; padding: 40px 28px 64px; }
+
+/* 标题 */
+h1 {
+  font-size: 26px; line-height: 1.4; margin: 0 0 6px;
+  color: var(--ink); letter-spacing: .2px;
+}
+h2 {
+  font-size: 19px; margin: 36px 0 12px; padding: 8px 12px;
+  border-left: 4px solid var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 85%);
+  border-radius: 4px; color: var(--ink);
+}
+h3 { font-size: 16px; margin: 24px 0 8px; color: var(--ink); }
+p { margin: 10px 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 版本信息框（blockquote） */
+blockquote {
+  margin: 14px 0 20px; padding: 10px 16px;
+  background: var(--accent-soft); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--ink-soft); font-size: 13px;
+}
+blockquote p { margin: 2px 0; }
+
+/* 代码 */
+code {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px; background: var(--code-bg);
+  color: var(--code-ink); padding: 1px 6px; border-radius: 4px;
+}
+pre {
+  background: #10151f; color: #dbe2ee;
+  padding: 14px 16px; border-radius: 8px;
+  overflow-x: auto; line-height: 1.55; margin: 12px 0;
+}
+pre code { background: none; color: inherit; padding: 0; font-size: 12.5px; }
+
+/* 表格 */
+table {
+  border-collapse: collapse; width: 100%; margin: 14px 0;
+  font-size: 13.5px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+th, td {
+  padding: 8px 12px; text-align: left; vertical-align: top;
+  border-bottom: 1px solid var(--line-soft);
+}
+th { background: #eef2f8; font-weight: 600; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: #f8fafc; }
+
+/* 列表 */
+ul, ol { margin: 8px 0; padding-left: 24px; }
+li { margin: 4px 0; }
+li > ul, li > ol { margin: 2px 0; }
+hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Z-Score 供应商风险分析平台 — 用户手册 v2.0</h1>
+<blockquote>
+<p>版本：v2.0 | 更新日期：2026-08-19
+适用范围：<code>zscore-web</code> Web 应用（Next.js 16 + Python 引擎）</p>
+</blockquote>
+<p>基于 Altman Z-Score 模型的供应商财务风险分析系统，提供 <strong>财报上传 → 自动解析 → Z 值计算 → 可视化 → 字典自审 → 多供应商对比</strong> 的完整闭环。</p>
+<hr />
+<h2>功能总览</h2>
+<h3>核心功能</h3>
+<ul>
+<li><strong>多格式上传分析</strong>：支持 PDF（电子文本 / 扫描件）、PPTX 财报，填写行业 / 期间 / 会计准则 / 币种，自动计算 Z 值</li>
+<li><strong>多文件上传 + PDF 合并</strong>：同一供应商多份 PDF 可同时上传，服务端自动合并后统一处理</li>
+<li><strong>三级抓取链</strong>：L1 直接科目命中 → L2 子指标求和 → L3 会计恒等式推算，逐级兜底确保数据完整性</li>
+<li><strong>字典自审闭环</strong>：系统自动发现未识别科目，进入「待审面板」供人工确认后写回字典库</li>
+<li><strong>可视化详情</strong>：SVG 仪表盘（Z 值区间）、因子分解柱状图、科目级溯源证据表、5 道校验门状态</li>
+<li><strong>人工手填 + 确认标注</strong>：支持手动录入缺失字段并重算 Z 值；推算值标记「推算待确认」</li>
+<li><strong>供应商库管理</strong>：历史记录归档、按供应商聚合多期分析、支持单删 / 批量删除（级联清理）</li>
+<li><strong>多供应商对比</strong>：勾选多个分析批次，对比 Z 值区间与因子构成、分组子指标</li>
+<li><strong>上市 / 非上市双模型</strong>：支持上市公司原始 Z 模型（5 因子含市值）与非上市 Z′/Z″ 模型切换</li>
+</ul>
+<h3>提取引擎</h3>
+<ul>
+<li><strong>电子文本通道</strong>：pdfplumber 提取文本与表格</li>
+<li><strong>扫描件 OCR</strong>：GLM-4V-Flash 视觉 OCR，未配置密钥时返回明确「待处理」状态</li>
+<li><strong>序号防误抓</strong>：当报表中存在大额数值时，自动过滤 1–999 的纯整数行号</li>
+<li><strong>EBIT 决策树</strong>：PBT + 利息费用优先；无利息费用时用 PBT 单独推算</li>
+</ul>
+<h3>输出与导出</h3>
+<ul>
+<li><strong>Excel 导出</strong>：沿用现有计算器格式的风险排序表 + 因子明细 Sheet</li>
+<li><strong>JSON API</strong>：完整 ExtractionResult + ZScoreResult，供下游系统消费</li>
+<li><strong>页面复核</strong>：每供应商一页，字段 → 页码 → 原文 → 提取方式 / 置信度</li>
+</ul>
+<hr />
+<h2>系统架构</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│  Next.js 16 (App Router, React 19, TypeScript, Tailwind v4)       │
+│                                                                   │
+│  app/page.tsx              首页：上传表单 + 最近分析                │
+│  app/suppliers/            供应商库 + 供应商历史 + 删除管理         │
+│  app/runs/[runId]/         单次分析详情（可编辑重算）              │
+│  app/compare/              多供应商对比                            │
+│  app/dictionary/           数据字典管理 + 待审科目面板             │
+│                                                                   │
+│  app/api/analyze           上传 → 引擎调用 → 落库 + dict_gaps 入库  │
+│  app/api/suppliers         供应商列表 / 删除                        │
+│  app/api/runs/[id]         分析详情 GET + 字段 PATCH（手填重算）    │
+│  app/api/compare           对比数据                                │
+│  app/api/dictionary        字典 GET/PUT                            │
+│  app/api/dictionary/gaps   待审科目 approve / ignore               │
+│       │ spawn 子进程                                               │
+│       ▼                                                          │
+│  lib/engine.ts  ──►  python -m zscore_pipeline.serve ...          │
+│                           │                                        │
+│                           ▼                                        │
+│              zscore_pipeline/ (Python 计算引擎)                     │
+│              pdfplumber 文本抽取 + GLM-4V-Flash 扫描 OCR            │
+│              FIELD_TREE 指标树 + 三级抓取链(L1/L2/L3+DERIVED)       │
+│              同义词映射 / 序号防误抓 / 5 道校验门                   │
+│                           │ JSON 单行输出                           │
+│       lib/db.ts (node:sqlite)  ◄── 落库 + dict_gaps                 │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre>
+<p>数据持久化：Node 内置 <code>node:sqlite</code>，库文件位于 <code>zscore-web/data/zscore.db</code>，上传的文件存于 <code>zscore-web/uploads/</code>。无需外部数据库服务。</p>
+<hr />
+<h2>运行环境</h2>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>版本 / 路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js</td>
+<td>22.x（内置 <code>node:sqlite</code>）</td>
+<td>开发用 22.22.2</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>含 <code>zscore_pipeline</code> 依赖的 venv</td>
+<td>见下方 <code>ZSCORE_PYTHON</code></td>
+</tr>
+<tr>
+<td>GLM_API_KEY</td>
+<td>可选</td>
+<td>仅扫描件 OCR 需要；缺省时扫描件返回「待处理」</td>
+</tr>
+</tbody>
+</table>
+<h2>快速启动</h2>
+<pre><code class="language-bash"># 0. 获取代码
+git clone &lt;仓库地址&gt; zscore &amp;&amp; cd zscore
+
+# 1. 准备 Python 引擎环境（仓库根目录执行）
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+
+# 2. 进入 Web 工程并安装依赖
+cd zscore-web &amp;&amp; npm install
+
+# 3.（可选）指定 Python 解释器
+cp .env.example .env.local   # 默认会自动探测 .venv，通常无需修改
+
+# 4. 启动开发服务器
+npm run dev
+# 打开 http://localhost:3000
+</code></pre>
+<h3>环境变量</h3>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ZSCORE_PYTHON</code></td>
+<td>自动探测（仓库根 <code>.venv</code> → 系统 <code>python3</code>）</td>
+<td>Python 解释器（需能 <code>import zscore_pipeline</code>）</td>
+</tr>
+<tr>
+<td><code>ZSCORE_WORKSPACE</code></td>
+<td><code>zscore-web</code> 的上级目录</td>
+<td>引擎 cwd，需包含 <code>zscore_pipeline/</code> 包</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>使用流程</h2>
+<h3>1. 上传财报并分析</h3>
+<ol>
+<li>首页点击「上传财报并分析」，选择文件（可多选）并填写：
+   - <strong>供应商名称</strong>（同名自动归并到同一供应商）
+   - <strong>行业</strong>：制造业 / 服务业（决定 Z′ 或 Z″ 模型）
+   - <strong>上市状态</strong>：上市 / 非上市（上市使用含市值的原始 Z 模型）
+   - <strong>报告期</strong>：年度 / 半年度 / Q1–Q4（非年度自动年化）
+   - <strong>会计准则</strong>：CAS / IFRS / 台湾准则 / 香港准则 / 其他
+   - <strong>币种</strong>（可选，仅作展示标注）</li>
+<li>支持的文件格式：
+   - <strong>PDF</strong>：电子文本或扫描件均可
+   - <strong>PPTX</strong>：PowerPoint 格式财报
+   - <strong>多文件上传</strong>：同一供应商的多个 PDF 会在服务端自动合并</li>
+<li>提交后自动计算，跳转至分析详情页</li>
+</ol>
+<h3>2. 查看分析详情</h3>
+<p>分析详情页展示：</p>
+<ul>
+<li><strong>Z 值仪表盘</strong>：SVG 区间图，直观显示安全 / 灰色 / 破产区</li>
+<li><strong>因子分解</strong>：X1–X5 各因子柱状图 + 数值</li>
+<li><strong>科目溯源证据表</strong>：每个字段的命中科目、页码、原文、提取方式（L1 / L2 / derived / manual）、置信度</li>
+<li><strong>校验门状态</strong>：5 道闸门（G1 复式平衡、G2 字段完整度、G3 非负校验、G4 量级合理性、G5 符号一致性）</li>
+<li><strong>状态标记</strong>：</li>
+<li><code>推算待确认</code>（黄色）：通过会计恒等式推算的值，建议人工核对</li>
+<li><code>待确认</code>（黄色）：手动录入或低置信度值</li>
+<li><code>已确认</code>（绿色）：人工确认或高置信度直接命中</li>
+</ul>
+<h3>3. 人工手填与重算</h3>
+<p>当自动提取结果有误或缺失时：</p>
+<ol>
+<li>在分析详情页，点击字段旁的编辑按钮</li>
+<li>手动输入正确数值</li>
+<li>系统自动重算 Z 值与风险区</li>
+<li>手填字段标记为 <code>manual</code> 方式</li>
+</ol>
+<h3>4. 数据字典管理</h3>
+<p>访问 <code>/dictionary</code> 页面：</p>
+<ul>
+<li><strong>字段卡片</strong>：每个 Z-Score 字段对应的同义词列表，可直接编辑</li>
+<li><strong>指标树（FIELD_TREE）</strong>：展开查看子指标及其别名</li>
+<li><strong>待审科目面板</strong>：</li>
+<li>系统在分析过程中自动发现未识别的科目行（有数值但无法匹配到任何字段）</li>
+<li>这些科目会进入「待审面板」，展示科目名称、数值、来源页码、样本文件</li>
+<li>点击「确认写回」可将该科目作为新别名写入字典（需选择目标字段和类型：直接 / 子指标）</li>
+<li>点击「忽略」可跳过该科目</li>
+</ul>
+<h3>5. 供应商库管理</h3>
+<p>访问 <code>/suppliers</code> 页面：</p>
+<ul>
+<li>查看所有供应商及其历史分析记录</li>
+<li>点击供应商查看详情页，展示多期 Z 值趋势</li>
+<li><strong>删除操作</strong>：</li>
+<li>单个删除：在供应商详情页点击删除按钮</li>
+<li>批量删除：在列表页勾选多个供应商后批量删除</li>
+<li>删除操作级联清理：供应商 → 分析记录 → 字段数据 → 原始文件</li>
+</ul>
+<h3>6. 多供应商对比</h3>
+<p>访问 <code>/compare</code> 页面：</p>
+<ul>
+<li>勾选多个分析批次（可跨供应商、跨期）</li>
+<li>对比 Z 值区间与因子构成</li>
+<li>查看分组子指标明细</li>
+</ul>
+<hr />
+<h2>模型与阈值</h2>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>适用场景</th>
+<th>安全线</th>
+<th>灰区</th>
+<th>危险线</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Z（原始 1968，上市，5 因子）</td>
+<td>上市公司</td>
+<td>Z &gt; 2.99</td>
+<td>1.81 &lt; Z ≤ 2.99</td>
+<td>Z ≤ 1.81</td>
+</tr>
+<tr>
+<td>Z′（1983，非上市制造业，5 因子）</td>
+<td>非上市制造业</td>
+<td>Z &gt; 2.90</td>
+<td>1.23 &lt; Z ≤ 2.90</td>
+<td>Z ≤ 1.23</td>
+</tr>
+<tr>
+<td>Z″（1995，非上市非制造业，4 因子）</td>
+<td>非上市服务业</td>
+<td>Z &gt; 2.60</td>
+<td>1.10 &lt; Z ≤ 2.60</td>
+<td>Z ≤ 1.10</td>
+</tr>
+</tbody>
+</table>
+<p><strong>5 道校验门</strong>：
+- G1 复式平衡：|资产 − (负债 + 权益)| &lt; 1 元
+- G2 字段完整度：关键字段非空
+- G3 非负校验：资产 / 负债 ≥ 0
+- G4 量级合理性：关键字段量级合理
+- G5 符号一致性：字段符号逻辑一致</p>
+<hr />
+<h2>三级抓取链详解</h2>
+<p>系统对资产负债表的 6 个核心字段（CA / CL / EQ / RE / TA / TL）采用逐级兜底的提取策略：</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>方式</th>
+<th>置信度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1 直接命中</td>
+<td>在同义词库中直接匹配字段小计行</td>
+<td>1.0</td>
+<td>首选：直接抓取「流动资产合计」「资产总计」等汇总行</td>
+</tr>
+<tr>
+<td>L2 子指标求和</td>
+<td>通过 FIELD_TREE 指标树，将子指标值求和</td>
+<td>0.85（覆盖率 ≥25%）</td>
+<td>当 L1 未命中或值偏小时，将各子指标（货币资金 + 应收账款 + 存货…）求和</td>
+</tr>
+<tr>
+<td>L3 恒等式推算</td>
+<td>利用会计恒等式反推</td>
+<td>0.7</td>
+<td>TL = TA − EQ；EQ = TA − TL；TA = TL + EQ；CL = TL − 非流动负债；CA = TA − 非流动资产</td>
+</tr>
+</tbody>
+</table>
+<p><strong>防误抓机制</strong>：当报表中存在大额数值（≥10 万）时，自动过滤 1–999 的纯整数行（防止序号列被误认为金额）。</p>
+<hr />
+<h2>目录说明</h2>
+<pre><code>zscore-web/
+├── app/                        # 页面与 API 路由
+│   ├── page.tsx                # 首页：上传 + 最近分析
+│   ├── suppliers/              # 供应商库（列表 + 详情 + 删除）
+│   ├── runs/[runId]/            # 分析详情（可编辑重算）
+│   ├── compare/                 # 多供应商对比
+│   ├── dictionary/              # 数据字典管理 + 待审面板
+│   └── api/                     # API 路由
+│       ├── analyze/             # 上传 → 引擎 → 落库
+│       ├── suppliers/           # 供应商列表 / 删除
+│       ├── runs/[id]/           # 分析详情 GET + PATCH
+│       ├── compare/             # 对比数据
+│       ├── dictionary/          # 字典 GET/PUT
+│       └── dictionary/gaps/     # 待审科目 approve/ignore
+├── components/                  # 可视化组件
+│   ├── ZGauge                   # Z 值仪表盘
+│   ├── FactorBars               # 因子分解柱状图
+│   ├── EvidenceTable            # 科目溯源证据表
+│   ├── EditableRunDetail        # 可编辑分析详情
+│   ├── CompareView              # 对比视图
+│   └── GapsPanel                # 待审科目面板
+├── lib/                         # 核心库
+│   ├── db.ts                    # node:sqlite 持久层
+│   ├── engine.ts                # Python 子进程调用
+│   ├── types.ts                 # TypeScript 类型
+│   ├── constants.ts             # Z 系数与阈值常量
+│   └── zscore.ts                # Z 值重算逻辑
+├── types/                       # node:sqlite 类型补丁
+├── data/                        # zscore.db（运行时生成）
+└── uploads/                     # 上传的文件（运行时生成）
+</code></pre>
+<p>Python 引擎目录：</p>
+<pre><code>zscore_pipeline/
+├── serve.py                     # CLI 入口（JSON 输出）
+├── pipeline.py                  # 主流水线（PDF/PPTX 分流）
+├── config.py                    # OCR Prompt 等配置
+├── models.py                    # 数据模型（ExtractMethod 枚举）
+├── synonym.py                   # 字典加载 + match_component + suggest_field_for_gap
+├── m4_map.py                    # 三级抓取链核心（L1/L2/L3 + sanitize）
+├── m2_extract_pptx.py           # PPTX 提取模块
+├── override.py                  # 手动覆盖（MANUAL 模式）
+└── dict/
+    └── synonyms.json            # 数据字典（SYNONYMS + FIELD_TREE + EQUITY_INCL_MINORITY）
+</code></pre>
+<hr />
+<h2>已知边界</h2>
+<ul>
+<li><strong>扫描件 OCR 需 GLM_API_KEY</strong>：未配置时，扫描件返回 <code>422 OCR_UNAVAILABLE</code>，提示配置密钥后重试；电子文本财报不受影响。</li>
+<li><strong>图片型 PDF 非确定性</strong>：GLM-4V-Flash 对扫描件 / 图片型 PDF 的 OCR 结果可能因序号列干扰而产生非确定性，系统已通过序号防误抓机制缓解，极端情况下建议人工手填修正。</li>
+<li>同源不同期财报按「同名供应商 + 多 run」归档，不做跨期自动对比计算（需手动进入对比视图）。</li>
+<li>数据纯本地，无鉴权、无多用户隔离，仅限本机 / 内网使用。</li>
+</ul>
+</div>
+</body>
+</html>

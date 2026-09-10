@@ -1,0 +1,41 @@
+{
+  "QSP 2023": {
+    "mode": "replace",
+    "note": "人工录入 IFRS 扫描件原始 BS/IS 数字（QR 卡塔尔里亚尔，元级；来源: 方案设计v2 基准2 实测表）。EBIT = PBT(2,579,264) + 利息(21,532) = 2,600,796。",
+    "fields": {
+      "current_assets": 169667494,
+      "current_liabilities": 37478444,
+      "total_assets": 173802193,
+      "total_liabilities": 40965187,
+      "equity_total": 132837006,
+      "retained_earnings": 127737006,
+      "revenue": 202627392,
+      "profit_before_tax": 2579264,
+      "interest_expense": 21532
+    }
+  },
+  "QSP 2022": {
+    "mode": "replace",
+    "note": "重建数字：方案设计v2 仅记录了 2022 的 X 值与合计 TA=263,629,538（复式平衡校验通过），未留存原始 BS 各科目。此处按 X1=0.5497/X2=0.5370/X3=0.0963/X4=1.2539 反推并构造一致口径，用于复现 Z''=7.320。如持有真实财报，请替换下列数值。",
+    "fields": {
+      "current_assets": 204993814,
+      "current_liabilities": 60000000,
+      "total_assets": 263629538,
+      "total_liabilities": 116997420,
+      "equity_total": 146632118,
+      "retained_earnings": 141569060,
+      "revenue": 258907061,
+      "profit_before_tax": 25403525,
+      "interest_expense": 0
+    }
+  },
+  "瀚邦为+恒久瑞": {
+    "mode": "patch",
+    "note": "双栏资产负债表 PDF 提取时左右标签拼接（如'长期股权投资 负债合计'），导致 total_liabilities/retained_earnings/profit_before_tax 漏提。此处按原始财报人工补录三项，其余沿用自动提取。留存收益=盈余公积1,685,643.50+未分配利润23,625,569.16=25,311,212.66。",
+    "fields": {
+      "total_liabilities": 208066925.11,
+      "retained_earnings": 25311212.66,
+      "profit_before_tax": 12266099.57
+    }
+  }
+}

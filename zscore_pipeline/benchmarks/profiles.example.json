@@ -1,0 +1,38 @@
+[
+  {
+    "name": "示例制造业-2024年报",
+    "industry_class": "manufacturing",
+    "period_type": "annual",
+    "gaap": "cas",
+    "currency": "CNY",
+    "source_file": "<path/to/your-report.pdf>",
+    "note": "电子文本年报；按全年口径（factor=1）"
+  },
+  {
+    "name": "示例服务业-2023审计",
+    "industry_class": "service",
+    "period_type": "annual",
+    "gaap": "hk_gaap",
+    "currency": "HKD",
+    "source_file": "<path/to/your-audit-report.pdf>",
+    "note": "扫描件审计报告 → 需配置 GLM_API_KEY 以触发 GLM-4V-Flash OCR"
+  },
+  {
+    "name": "示例英文IFRS-2022",
+    "industry_class": "service",
+    "period_type": "annual",
+    "gaap": "ifrs",
+    "currency": "USD",
+    "source_file": "<path/to/your-ifrs-report.pdf>",
+    "note": "英文 IFRS 扫描件 → GLM-4V-Flash OCR"
+  },
+  {
+    "name": "示例季报-2026Q1",
+    "industry_class": "manufacturing",
+    "period_type": "q1",
+    "gaap": "cas",
+    "currency": "CNY",
+    "source_file": "<path/to/your-quarterly-report.pdf>",
+    "note": "CAS 简中季报，电子文本；流量 × 4 年化"
+  }
+]

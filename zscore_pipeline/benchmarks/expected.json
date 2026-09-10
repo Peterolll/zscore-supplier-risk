@@ -1,0 +1,8 @@
+{
+  "瀚荃(114Q4)":        {"z": 2.248,  "risk": "grey",    "model": "Z'"},
+  "麦弗瑞中国-2023审计": {"z": -0.163, "risk": "distress", "model": "Z''"},
+  "QSP 2022":           {"z": 7.320,  "risk": "safe",     "model": "Z''"},
+  "QSP 2023":           {"z": 10.891, "risk": "safe",     "model": "Z''"},
+  "鸣志电器2026Q1":     {"z": 1.904,  "risk": "grey",     "model": "Z'"},
+  "鸣志电器2025年报":   {"z": 1.937,  "risk": "grey",     "model": "Z'"}
+}

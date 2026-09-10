@@ -1,0 +1,10 @@
+# Z-Score 计算引擎（zscore_pipeline）Python 依赖
+# 安装：python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+
+pdfplumber>=0.11.0      # PDF 文本/表格抽取
+pypdf>=4.0.0            # 多份 PDF 合并
+python-pptx>=1.0.0      # PPTX 财报抽取
+pydantic>=2.0.0         # 数据模型与校验
+openpyxl>=3.1.0         # Excel 导出
+
+# 可选：扫描件 OCR 需要 GLM_API_KEY（视觉模型），不配置则电子文本财报不受影响

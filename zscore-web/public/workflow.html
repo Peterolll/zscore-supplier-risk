@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>供应商 Z-Score 自动化 · 计算工作流图</title>
+<style>
+  :root {
+    --bg: #f7f8fb;
+    --panel: #ffffff;
+    --ink: #1f2330;
+    --ink-soft: #5b6473;
+    --line: #d8dde6;
+    --line-soft: #e7ebf2;
+    --accent: #5b6cff;        /* 主线：开始/输入 */
+    --extract: #00a896;       /* 提取段 */
+    --map: #f59e0b;           /* 解析段 */
+    --gate: #e11d48;          /* 闸门段 */
+    --calc: #7c3aed;          /* 计算段 */
+    --output: #2563eb;        /* 输出段 */
+    --audit: #0891b2;         /* 字典自审 */
+    --ok: #16a34a;
+    --warn: #f59e0b;
+    --bad: #e11d48;
+    --shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.05);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                 "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px; margin-bottom: 24px;
+  }
+  h1 { font-size: 28px; margin: 0; letter-spacing: .5px; }
+  h1::before {
+    content: ""; display: inline-block; width: 6px; height: 22px;
+    background: var(--accent); margin-right: 10px; vertical-align: -3px;
+    border-radius: 2px;
+  }
+  .meta { color: var(--ink-soft); font-size: 13px; }
+  .sub { color: var(--ink-soft); font-size: 14px; margin: 6px 0 24px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .canvas {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    overflow: auto;
+  }
+  svg { display: block; min-width: 1200px; width: 100%; height: auto; }
+  .legend .row {
+    display: flex; align-items: center; gap: 16px; padding: 6px 0;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .legend .row:last-child { border-bottom: 0; }
+  .legend .row b { color: var(--ink); font-weight: 600; min-width: 96px; }
+  .legend .row .right { color: var(--ink-soft); font-size: 13px; }
+
+  section.kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 24px;
+  }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .kpi .k { color: var(--ink-soft); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .kpi .v .u { font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-left: 4px; }
+
+  h2 { font-size: 18px; margin: 32px 0 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+          box-shadow: var(--shadow); }
+  th, td { padding: 10px 14px; text-align: left; font-size: 13px;
+           border-bottom: 1px solid var(--line-soft); }
+  th { background: #f1f3f9; color: var(--ink); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+                background: #f1f3f9; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* SVG 节点样式 */
+  .node { fill: #ffffff; stroke: var(--line); stroke-width: 1.2;
+          filter: drop-shadow(0 2px 6px rgba(15,23,42,.06)); }
+  .node-accent { stroke: var(--accent); }
+  .node-extract { stroke: var(--extract); }
+  .node-map { stroke: var(--map); }
+  .node-gate { stroke: var(--gate); }
+  .node-calc { stroke: var(--calc); }
+  .node-output { stroke: var(--output); }
+  .node-audit { stroke: var(--audit); }
+  .node-title { font-weight: 600; font-size: 13px; fill: var(--ink); }
+  .node-sub { font-size: 11px; fill: var(--ink-soft); }
+  .badge {
+    fill: #eef2ff; stroke: none;
+  }
+  .badge-text { font-size: 10.5px; fill: var(--accent); font-weight: 600; }
+  .badge-tag { font-size: 10px; fill: #fff; font-weight: 600; }
+  .tag-input   { fill: var(--accent); }
+  .tag-extract { fill: var(--extract); }
+  .tag-map     { fill: var(--map); }
+  .tag-gate    { fill: var(--gate); }
+  .tag-calc    { fill: var(--calc); }
+  .tag-output  { fill: var(--output); }
+  .tag-audit   { fill: var(--audit); }
+  .arrow { fill: none; stroke: #94a3b8; stroke-width: 1.4; }
+  .arrow-soft { stroke-dasharray: 4 4; }
+  .branch-label { font-size: 11px; fill: var(--ink-soft); font-style: italic; }
+  .stepno { font-size: 11px; fill: var(--ink-soft); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>供应商 Z-Score 自动化 · 计算工作流图</h1>
+    <span class="meta">v2.0 · 2026-08-21 · MvpDevExpertTeam</span>
+  </header>
+  <p class="sub">
+    本图展示从 <b>PDF/PPTX 上传</b> 到 <b>Z-Score + 风险区</b> 的完整计算流水线，节点编号与模块对应，
+    浅色虚线为可选分支（人工手填、字典自审）。所有节点点击可展开详细说明（见文档下方对照表）。
+  </p>
+
+  <div class="legend">
+    <div class="row"><b>1. 输入</b><span class="right">PDF / 图像 / PPTX</span></div>
+    <div class="row"><b>2. 提取</b><span class="right">PDF 文本 / GLM-4V OCR / PPTX / Sanitize</span></div>
+    <div class="row"><b>3. 定位</b><span class="right">合并报表页 · 单位换算 · 期间因子</span></div>
+    <div class="row"><b>4. 解析</b><span class="right">FIELD_TREE 三级抓取链（L1/L2/L3）</span></div>
+    <div class="row"><b>5. 验证</b><span class="right">G1-G5 五道闸门</span></div>
+    <div class="row"><b>6. 计算</b><span class="right">5 因子加权 → Z / Z' / Z''</span></div>
+    <div class="row"><b>7. 输出</b><span class="right">详情页 · 多供应商对比 · 字典自审</span></div>
+  </div>
+
+  <div class="canvas">
+    <svg viewBox="0 0 1280 880" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+        </marker>
+        <marker id="arr-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+        </marker>
+      </defs>
+
+      <!-- Step number labels -->
+      <text class="stepno" x="40" y="80">1</text>
+      <text class="stepno" x="220" y="80">2</text>
+      <text class="stepno" x="540" y="80">3</text>
+      <text class="stepno" x="720" y="80">4</text>
+      <text class="stepno" x="1000" y="80">5</text>
+      <text class="stepno" x="1110" y="80">6</text>
+      <text class="stepno" x="1200" y="80">7</text>
+
+      <!-- ============ 1. INPUT ============ -->
+      <g transform="translate(30,100)">
+        <rect class="node node-accent" x="0" y="0" width="150" height="84" rx="10" />
+        <text class="node-title" x="14" y="22">📄 文件输入</text>
+        <text class="node-sub" x="14" y="40">PDF / 多文件 / 图像</text>
+        <text class="node-sub" x="14" y="56">PPTX</text>
+        <text class="node-sub" x="14" y="72">供应商名 + 行业 + 期间</text>
+        <rect class="tag-input" x="14" y="78" width="56" height="14" rx="3" />
+        <text class="tag-tag" x="42" y="89" text-anchor="middle">START</text>
+      </g>
+
+      <!-- arrow 1->2 -->
+      <path class="arrow" d="M 184 142 L 230 142" marker-end="url(#arr)" />
+
+      <!-- ============ 2. EXTRACT (3 branches) ============ -->
+      <g transform="translate(230,100)">
+        <rect class="node node-extract" x="0" y="0" width="280" height="84" rx="10" />
+        <text class="node-title" x="14" y="22">📥 M2 数据提取</text>
+        <text class="node-sub" x="14" y="40">· pdfplumber 文本抽取（电子 PDF）</text>
+        <text class="node-sub" x="14" y="56">· GLM-4V-Flash OCR（扫描/图像 PDF）</text>
+        <text class="node-sub" x="14" y="72">· python-pptx（PPTX 备查文件）</text>
+      </g>
+
+      <!-- arrows 2->3 (3 branches) -->
+      <path class="arrow" d="M 350 184 Q 380 230 410 270" marker-end="url(#arr)" />
+      <path class="arrow" d="M 470 184 Q 470 230 470 270" marker-end="url(#arr)" />
+      <path class="arrow" d="M 590 184 Q 560 230 530 270" marker-end="url(#arr)" />
+
+      <text class="branch-label" x="360" y="222">文本</text>
+      <text class="branch-label" x="478" y="222">OCR</text>
+      <text class="branch-label" x="555" y="222">PPTX</text>
+
+      <!-- ============ 3. LOCATE / SANITIZE ============ -->
+      <g transform="translate(280,275)">
+        <rect class="node node-extract" x="0" y="0" width="380" height="120" rx="10" />
+        <text class="node-title" x="14" y="22">🧹 抽取清洗 + 报表定位</text>
+        <text class="node-sub" x="14" y="40">· Sanitize：纯整数 1-999 且大数≥100K 存在 → 视为序号，丢弃</text>
+        <text class="node-sub" x="14" y="56">· M3 合并报表页：识别「合并/母公司」关键词 → 标</text>
+        <text class="node-sub" x="78" y="70">记 consolidated_pages，提取时优先</text>
+        <text class="node-sub" x="14" y="86">· 单位换算：元 / 万元 / 百万元 / 千元 自动检测</text>
+        <text class="node-sub" x="14" y="102">· 期间因子：Q1=4 / Q2=2 / Q3=4/3 / Q4 / 年报=1</text>
+      </g>
+
+      <!-- arrow 3->4 -->
+      <path class="arrow" d="M 470 395 L 470 430" marker-end="url(#arr)" />
+
+      <!-- ============ 4. THREE-LEVEL MAP (3 sub-branches) ============ -->
+      <g transform="translate(660,100)">
+        <rect class="node node-map" x="0" y="0" width="280" height="56" rx="10" />
+        <text class="node-title" x="14" y="22">🧠 M4 三级抓取链</text>
+        <text class="node-sub" x="14" y="40">FIELD_TREE 指标树驱动</text>
+      </g>
+
+      <!-- three sub-branches -->
+      <g transform="translate(660,180)">
+        <rect class="node node-map" x="0" y="0" width="280" height="58" rx="10" />
+        <rect class="tag-map" x="14" y="12" width="36" height="16" rx="3" />
+        <text class="tag-tag" x="32" y="24" text-anchor="middle">L1</text>
+        <text class="node-title" x="58" y="24">直接抓取</text>
+        <text class="node-sub" x="14" y="46">合并表 + 同义字典精确匹配 · conf=1.0</text>
+      </g>
+      <g transform="translate(660,250)">
+        <rect class="node node-map" x="0" y="0" width="280" height="58" rx="10" />
+        <rect class="tag-map" x="14" y="12" width="36" height="16" rx="3" />
+        <text class="tag-tag" x="32" y="24" text-anchor="middle">L2</text>
+        <text class="node-title" x="58" y="24">子项求和</text>
+        <text class="node-sub" x="14" y="46">FIELD_TREE.components 求和 · 覆盖≥25% conf=0.85</text>
+      </g>
+      <g transform="translate(660,320)">
+        <rect class="node node-map" x="0" y="0" width="280" height="58" rx="10" />
+        <rect class="tag-map" x="14" y="12" width="36" height="16" rx="3" />
+        <text class="tag-tag" x="32" y="24" text-anchor="middle">L3</text>
+        <text class="node-title" x="58" y="24">会计恒等推算</text>
+        <text class="node-sub" x="14" y="46">TL=TA-EQ / CA=TA-NCA 等 · conf=0.7 DERIVED</text>
+      </g>
+
+      <!-- arrow 4 (parent) -> 3 sub -->
+      <path class="arrow" d="M 800 156 L 800 178" marker-end="url(#arr)" />
+      <path class="arrow" d="M 800 238 L 800 248" marker-end="url(#arr)" />
+      <path class="arrow" d="M 800 308 L 800 318" marker-end="url(#arr)" />
+
+      <!-- arrows sub -> 5 -->
+      <path class="arrow" d="M 940 209 Q 990 209 1010 320" marker-end="url(#arr)" />
+      <path class="arrow" d="M 940 279 L 1010 320" marker-end="url(#arr)" />
+      <path class="arrow" d="M 940 349 Q 980 349 1010 320" marker-end="url(#arr)" />
+
+      <!-- ============ 5. AUDIT (audit soft loop) ============ -->
+      <g transform="translate(660,440)">
+        <rect class="node node-audit" x="0" y="0" width="280" height="72" rx="10" />
+        <text class="node-title" x="14" y="22">📚 字典自审闭环</text>
+        <text class="node-sub" x="14" y="40">· 收集 match_field=None 的有效数字行</text>
+        <text class="node-sub" x="14" y="56">· 写入 dict_gaps 表（/dictionary 待审面板）</text>
+        <text class="node-sub" x="14" y="68">· approve → synonyms.json 永久写回</text>
+      </g>
+
+      <path class="arrow arrow-soft" d="M 940 472 Q 1100 472 1180 472" stroke="#cbd5e1" marker-end="url(#arr-soft)" />
+      <text class="branch-label" x="1000" y="464">approve 写回</text>
+
+      <!-- ============ 5. GATES ============ -->
+      <g transform="translate(970,275)">
+        <rect class="node node-gate" x="0" y="0" width="220" height="170" rx="10" />
+        <text class="node-title" x="14" y="22">🚧 M5 五道闸门</text>
+        <text class="node-sub" x="14" y="40">G1 复式平衡  |TA-(TL+EQ)|≤1%·TA</text>
+        <text class="node-sub" x="14" y="56">G2 逻辑一致  CA≤TA, CL≤TL, EQ≤TA, RE≤TA</text>
+        <text class="node-sub" x="14" y="72">G3 数值合理  TA&gt;0, TL≥0, 关键字段非空</text>
+        <text class="node-sub" x="14" y="88">G4 EBIT 交叉 |EBIT-(PBT+利息)|≤1%</text>
+        <text class="node-sub" x="14" y="104">G5 完整性  8 字段齐全（Z'' 放宽为 7）</text>
+        <text class="node-sub" x="14" y="120">· 任一失败 → 该字段标 red，不阻断计算</text>
+        <text class="node-sub" x="14" y="136">· 全部通过 → 进入 M6</text>
+      </g>
+
+      <path class="arrow" d="M 1010 445 L 1010 446" />
+
+      <!-- ============ 6. CALC ============ -->
+      <g transform="translate(970,470)">
+        <rect class="node node-calc" x="0" y="0" width="220" height="170" rx="10" />
+        <text class="node-title" x="14" y="22">🧮 M6 Z-Score 计算</text>
+        <text class="node-sub" x="14" y="40">· 流量年化（仅 EBIT/营收）</text>
+        <text class="node-sub" x="14" y="56">· 模型选择：</text>
+        <text class="node-sub" x="14" y="72">  - 上市 → 原始 Z（5 因子，X4=市值/TL）</text>
+        <text class="node-sub" x="14" y="88">  - 非上市制造 → Z'（5 因子）</text>
+        <text class="node-sub" x="14" y="104">  - 非上市非制造 → Z''（4 因子）</text>
+        <text class="node-sub" x="14" y="120">· Z = Σ coef[i] × Xi</text>
+        <text class="node-sub" x="14" y="136">· 风险区：safe / grey / distress</text>
+      </g>
+
+      <!-- arrow 5->6 -->
+      <path class="arrow" d="M 1080 445 L 1080 466" marker-end="url(#arr)" />
+
+      <!-- ============ 7. OUTPUT ============ -->
+      <g transform="translate(1200,470)">
+        <rect class="node node-output" x="0" y="0" width="60" height="170" rx="10" />
+        <text class="node-title" x="14" y="22" transform="rotate(0)">📊</text>
+        <text class="node-sub" x="30" y="40" text-anchor="middle">详情</text>
+        <text class="node-sub" x="30" y="56" text-anchor="middle">页</text>
+        <text class="node-sub" x="30" y="78" text-anchor="middle">多供</text>
+        <text class="node-sub" x="30" y="94" text-anchor="middle">应商</text>
+        <text class="node-sub" x="30" y="110" text-anchor="middle">对比</text>
+        <text class="node-sub" x="30" y="132" text-anchor="middle">字典</text>
+        <text class="node-sub" x="30" y="148" text-anchor="middle">管理</text>
+      </g>
+
+      <!-- 5 → 7 arrow (curved bottom path) -->
+      <path class="arrow" d="M 1080 640 L 1080 670 Q 1080 720 1230 720 L 1230 640" marker-end="url(#arr)" />
+
+      <!-- Audit approval loop dashed back to 2 -->
+      <path class="arrow arrow-soft" d="M 660 476 Q 380 700 370 184" stroke="#cbd5e1" marker-end="url(#arr-soft)" />
+      <text class="branch-label" x="100" y="700" fill="#0891b2">字典自学习</text>
+      <text class="branch-label" x="100" y="716" fill="#0891b2">下批样本自动识别</text>
+
+      <!-- Side branch: manual override -->
+      <g transform="translate(280,470)">
+        <rect class="node" x="0" y="0" width="280" height="100" rx="10"
+              stroke-dasharray="6 4" stroke="#94a3b8" />
+        <text class="node-title" x="14" y="22">✍️ 人工手填（虚线旁路）</text>
+        <text class="node-sub" x="14" y="40">· 详情页 PATCH 字段值</text>
+        <text class="node-sub" x="14" y="56">· override 持久化 → apply_overrides()</text>
+        <text class="node-sub" x="14" y="72">· 字段标 "manual" method, conf=1.0</text>
+        <text class="node-sub" x="14" y="86">· 自动触发重算 + 闸门重跑</text>
+      </g>
+      <path class="arrow arrow-soft" d="M 470 470 L 470 395" stroke="#cbd5e1" marker-end="url(#arr-soft)" />
+      <text class="branch-label" x="476" y="436">PATCH 注入</text>
+
+    </svg>
+  </div>
+
+  <h2>节点 → 模块对照</h2>
+  <table>
+    <thead>
+      <tr><th>节点</th><th>模块</th><th>输入</th><th>输出</th><th>关键参数 / 兜底</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1. 文件输入</td><td>Web 上传层</td><td>PDF / 图像 / PPTX</td><td>合并后的单 PDF + 供应商档案</td><td>多文件 → pypdf <code>PdfWriter</code> 合并</td></tr>
+      <tr><td>2. 数据提取</td><td><code>m2_extract.py</code></td><td>PDF / PPTX</td><td><code>LineItem[]</code> + 抽取方法</td><td>兜底：文本不足 → GLM-4V OCR</td></tr>
+      <tr><td>2a. 序号清洗</td><td><code>_extract_text_lines</code> + sanitize</td><td>含纯整数 1-999 的行</td><td>序号行丢弃</td><td>触发条件：同页 <code>|v|≥100K</code> 存在</td></tr>
+      <tr><td>3. 报表定位</td><td><code>m3_locate.py</code></td><td>整 PDF 文本</td><td><code>consolidated_pages</code> + <code>unit_scale</code> + <code>period_factor</code></td><td>单位：千/万/百万/亿 自动检测</td></tr>
+      <tr><td>4a. L1 直接抓取</td><td><code>m4_map.resolve</code></td><td>清洗后的 LineItem[]</td><td>字段值 + conf=1.0</td><td>兜底：值 &lt; max(component) → 降级 L2</td></tr>
+      <tr><td>4b. L2 子项求和</td><td><code>FIELD_TREE.components</code></td><td>明细行</td><td>求和值 + conf=0.85 / 0.7</td><td>兜底：覆盖&lt;25% → 不入字典</td></tr>
+      <tr><td>4c. L3 恒等推算</td><td><code>resolve_bs</code> identity branch</td><td>已抓取的 TA/TL/EQ 等</td><td>推算值 + conf=0.7 <code>DERIVED</code></td><td>兜底：相关字段全空 → 标"缺失"</td></tr>
+      <tr><td>4d. 字典自审</td><td><code>extract.dict_gaps</code> → DB</td><td>未命中字典的有值行</td><td>dict_gaps 待审列表</td><td>approve 写回 <code>synonyms.json</code></td></tr>
+      <tr><td>5. 五道闸门</td><td><code>m5_validate.run_gates</code></td><td>完整 fields</td><td>passed / failed / notes</td><td>不阻断计算，UI 标红 + 备注</td></tr>
+      <tr><td>6. Z-Score</td><td><code>m6_calc.calc</code></td><td>fields + 期间因子</td><td>X1-X5 + Z + risk_zone</td><td>4 模型：Z / Z' / Z'' + 流量年化</td></tr>
+      <tr><td>7. 输出</td><td>Web 详情页 / 对比页 / 字典页</td><td>Z + 闸门 + 字段</td><td>可读看板 + 可编辑</td><td>人工手填 → 重算 → 闸门重跑</td></tr>
+    </tbody>
+  </table>
+
+  <h2>关键设计取舍</h2>
+  <table>
+    <thead><tr><th>取舍点</th><th>选择</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>Sanitize 触发条件</td><td>同页存在 ≥100K 数值时，纯整数 1-999 才视为序号</td><td>避免小样本（如 1-999 区间本身就是真实金额）被误杀</td></tr>
+      <tr><td>L2 覆盖率门槛</td><td>≥25% 判 conf=0.85，&lt;25% 判 conf=0.7</td><td>小微企业报表常仅 5-7 个子项（5/12≈42%）也能算</td></tr>
+      <tr><td>L3 推算</td><td>仅在直接/子项均失败时启用，且 conf=0.7</td><td>确保 UI 能标"推算待确认"，避免隐藏错误</td></tr>
+      <tr><td>字典自审</td><td>gap 写入 DB 而非直接改字典</td><td>避免 OCR 偶发噪声污染生产字典</td></tr>
+      <tr><td>闸门不阻断</td><td>failed 仅标红 + 备注，仍计算 Z</td><td>用户可见全貌，比"硬失败"更可调试</td></tr>
+      <tr><td>人工手填</td><td>override 持久化 + 自动重算</td><td>让领域知识（审计、调整）可沉淀</td></tr>
+    </tbody>
+  </table>
+
+  <p class="sub" style="margin-top: 32px;">
+    <b>关联文档：</b>
+    <code>供应商Z-Score自动化_PRD.md</code> ·
+    <code>zscore-web/README.md</code> ·
+    <code>zscore_pipeline/m4_map.py</code> ·
+    <code>zscore_pipeline/m5_validate.py</code> ·
+    <code>zscore_pipeline/m6_calc.py</code>
+  </p>
+</div>
+</body>
+</html>

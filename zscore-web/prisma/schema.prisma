@@ -1,0 +1,63 @@
+// Prisma schema — Z-Score 供应商风险库（SQLite，本机运行；可平滑切换 Postgres）
+// SQLite 不支持原生数组，故 gates/notes 以逗号拼接字符串存储，应用层拆分。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Supplier {
+  id         String      @id @default(cuid())
+  name       String
+  industry   String      // manufacturing | service（P0-1：人工确认）
+  period     String      // annual | semi | q1..q4
+  gaap       String      // cas | ifrs | tw_gaap | hk_gaap | other
+  currency   String      @default("CNY")
+  sourceFile String?     // 最近一次上传的 PDF 路径
+  createdAt  DateTime    @default(now())
+  runs       ZScoreRun[]
+}
+
+model ZScoreRun {
+  id               String   @id @default(cuid())
+  supplierId       String
+  supplier         Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  zScore           Float?
+  model            String   // Z' | Z''
+  riskZone         String   // safe | grey | distress
+  annualized       Boolean  @default(false)
+  annualizeFactor  Float    @default(1.0)
+  method           String   // pdfplumber | glm_ocr
+  gatesPassed      String   @default("") // 逗号拼接
+  gatesFailed      String   @default("") // 逗号拼接
+  notes            String   @default("") // 逗号拼接
+  createdAt        DateTime @default(now())
+  factors          Factor[]
+  fields           FinancialField[]
+}
+
+// Altman 五/四因子（X1-X5，非制造业仅 X1-X4）
+model Factor {
+  id        String   @id @default(cuid())
+  runId     String
+  run       ZScoreRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  key       String   // X1 | X2 | X3 | X4 | X5
+  value     Float?
+}
+
+// 提取的财务科目（带溯源：证据科目名 / 页码 / 提取方式 / 置信度）
+model FinancialField {
+  id          String   @id @default(cuid())
+  runId       String
+  run         ZScoreRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  fieldKey    String   // current_assets | total_liabilities | retained_earnings ...
+  value       Float?
+  evidence    String   @default("")
+  sourcePage  Int?
+  method      String   @default("")
+  confidence  Float    @default(1.0)
+}

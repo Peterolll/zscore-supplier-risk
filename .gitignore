@@ -1,0 +1,42 @@
+# ===== 密钥与凭证：绝不上传 =====
+.env
+.env.*
+!.env.example
+*.key
+zscore_pipeline/.glm_key
+**/ai-config.json
+zscore-web/data/
+
+# ===== 用户数据：真实财报，绝不上传 =====
+zscore-web/uploads/
+zscore_pipeline/output/
+*.db
+*.db-wal
+*.db-shm
+
+# ===== 含安全弱点的文件：默认不公开（公开等于把弱点交给攻击者）=====
+Z-Score自动化_代码审查报告.md
+# 基准配置引用了个人桌面上的真实财报 PDF（脱敏模板在 profiles.example.json）
+zscore_pipeline/benchmarks/profiles.json
+
+# ===== WorkBuddy 工作目录（含个人笔记）=====
+.workbuddy/
+
+# ===== 依赖与构建产物 =====
+node_modules/
+.next/
+out/
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# ===== 系统与编辑器 =====
+.DS_Store
+Thumbs.db
+*.log
+*.tsbuildinfo
