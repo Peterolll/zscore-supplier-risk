@@ -15,7 +15,7 @@ zscore_pipeline/output/
 *.db-shm
 
 # ===== 含安全弱点的文件：默认不公开（公开等于把弱点交给攻击者）=====
-Z-Score自动化_代码审查报告.md
+docs/reports/Z-Score自动化_代码审查报告.md
 # 基准配置引用了个人桌面上的真实财报 PDF（脱敏模板在 profiles.example.json）
 zscore_pipeline/benchmarks/profiles.json
 
