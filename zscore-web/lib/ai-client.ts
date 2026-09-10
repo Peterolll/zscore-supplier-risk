@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import { resolvePython, resolveWorkspace } from "./engine";
 import { getAiConfig } from "./ai-config";
 import {
   buildUnifiedSystemPrompt,
@@ -407,38 +408,93 @@ function parseAiResponse(
 
 // ════════════════════════════════════════════════════════════════════
 // PDF 渲染辅助
+//
+// 渲染交给 Python 侧完成（zscore_pipeline/pdf_render.py，基于 pypdfium2）。
+//
+// 早期实现直接 execFileSync("pdftoppm" / "pdfinfo")，依赖外部程序 poppler。
+// 而 poppler 在 Windows 上**不是系统自带**，用户必须手动下载压缩包、解压、
+// 再把 bin 目录加进 PATH —— 对非技术用户几乎不可能完成，是 Windows 部署的
+// 最大障碍。pypdfium2 则是 pdfplumber 的自带依赖（纯 Python 轮子，内含
+// PDFium 二进制），三平台安装方式完全一致，因此改用它。
+//
+// 若缺少 Python 环境，这些函数会回退（整页返回空数组 / 裁切返回 null /
+// 元信息返回默认值），不会让整个请求崩溃。
 // ════════════════════════════════════════════════════════════════════
 
 /**
- * 将 PDF 整页转为 PNG base64（使用 pdftoppm，无裁切）。
- * 安全：使用 execFileSync + 数组参数。
+ * 调用 Python 渲染模块（zscore_pipeline/pdf_render.py，基于 pypdfium2），
+ * 返回其 stdout 的 JSON。失败时抛异常，由各调用方决定回退策略。
+ */
+async function runPdfRender(
+  args: string[],
+  opts: { timeoutMs?: number; maxBuffer?: number } = {}
+): Promise<Record<string, unknown>> {
+  const { execFileSync } = await import("node:child_process");
+
+  // 所有子命令的第 1 个参数都是输入 PDF（meta/pages/crop/text 一致）。
+  // 必须转成绝对路径：子进程的 cwd 是**仓库根**（resolveWorkspace()），而调用方
+  // 可能基于 zscore-web 目录给出的相对路径 —— 同一个相对路径在两边指向不同文件。
+  const normalized = [...args];
+  if (normalized.length > 1) normalized[1] = path.resolve(normalized[1]);
+
+  const stdout = execFileSync(
+    resolvePython(),
+    ["-m", "zscore_pipeline.pdf_render", ...normalized],
+    {
+      cwd: resolveWorkspace(),
+      encoding: "utf-8",
+      // 默认 8MB：渲染类命令只回一行小 JSON；text 命令会回全文，另行放大
+      maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
+      timeout: opts.timeoutMs ?? 60000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
+  const lastLine = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
+  return JSON.parse(lastLine) as Record<string, unknown>;
+}
+
+/**
+ * 包装 runPdfRender：失败时打日志并走调用方的回退值。
+ *
+ * 这些渲染函数历史上把异常完全吞掉，只回退到「默认值」（如 meta 回 960×540、
+ * 裁切回 null）。一旦 Python 环境有问题，表现为「AI 识别结果莫名其妙」，排查
+ * 成本很高。加一行告警日志能立刻定位到「其实是渲染就失败了」。
+ */
+async function runPdfRenderSafe(
+  args: string[],
+  opts: { timeoutMs?: number; maxBuffer?: number } = {}
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await runPdfRender(args, opts);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[ai-client] PDF 渲染失败（${args[0]}）：${msg.split("\n")[0]}。` +
+        "请确认已创建 .venv 并安装 requirements.txt（见 docs/新手安装指南*.md）。"
+    );
+    return null;
+  }
+}
+
+/**
+ * 将 PDF 整页转为 PNG base64（无裁切）。
  */
 export async function pdfToImagesBase64(
   pdfPath: string,
   maxPages: number = 5
 ): Promise<string[]> {
-  const { execFileSync } = await import("node:child_process");
   const os = await import("node:os");
   const fsp = await import("node:fs/promises");
 
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "zscore-ai-"));
-  const prefix = path.join(tmpDir, "page");
 
   try {
-    execFileSync(
-      "pdftoppm",
-      ["-png", "-r", "150", "-l", String(maxPages), pdfPath, prefix],
-      { timeout: 60000, stdio: "pipe" }
-    );
-
-    const files = (await fsp.readdir(tmpDir))
-      .filter((f) => f.endsWith(".png"))
-      .sort()
-      .slice(0, maxPages);
+    const res = await runPdfRender(["pages", pdfPath, String(maxPages), "150", tmpDir]);
+    const files = ((res.files as string[]) ?? []).slice(0, maxPages);
 
     const images: string[] = [];
     for (const f of files) {
-      const buf = await fsp.readFile(path.join(tmpDir, f));
+      const buf = await fsp.readFile(f);
       images.push(buf.toString("base64"));
     }
     return images;
@@ -453,10 +509,22 @@ export async function pdfToImagesBase64(
 
 /**
  * Split 模式专用：将 PDF 页面裁切为 BS / IS 区域，转为 PNG base64。
- * 裁切坐标基于 72 DPI（pdftoppm 的 -x/-y/-W/-H 默认坐标）。
+ *
+ * 裁切以**整页百分比**（0..1，原点在左上）表达，百分比 → 像素的换算交给
+ * Python 侧（pdf_render.py）完成，从而与分辨率彻底解耦。
+ *
+ * ⚠️ 历史陷阱（2026-09-03，保留记录以免重蹈）：
+ * 旧实现调用 pdftoppm 的 -x/-y/-W/-H，而带 -r 时这些参数的单位是**输出像素**，
+ * 不是 72 DPI 点。当时按 pdfinfo 报的"页大小"（点）直接算坐标，同一份调用里
+ * 既被当成"小区域的点"、又被 pdftoppm 当"大区域的像素"——结果 FULL_PAGE
+ * {0,0,1,1} 实际只输出 pageW×pageH 像素的图（A4 = 595×842），相当于整页的
+ * 左上 ~36%×36%，下方正文全部丢失。
+ * 实测：测试5 的利润表页被截到只剩"标题+营业收入/营业成本/税金及附加"4 行，
+ * "三、利润总额" 根本不在画面内 → AI 只能返回 null 并凭推断编一个 ev。
+ * 改为按整页比例裁切后，单位混淆从根上消失。
  *
  * @param pdfPath PDF 路径
- * @param crop    { x_pct, y_pct, w_pct, h_pct } 比例 0..1；传 FULL_PAGE 表示整页不裁
+ * @param crop    { x_pct, y_pct, w_pct, h_pct } 整页比例 0..1；传 FULL_PAGE 表示整页不裁
  * @param dpi     输出分辨率（默认 400）
  * @param page    页码（1-based，默认 1）
  */
@@ -466,70 +534,26 @@ export async function pdfToCroppedBase64(
   dpi: number = 400,
   page: number = 1
 ): Promise<string | null> {
-  const { execFileSync } = await import("node:child_process");
   const os = await import("node:os");
   const fsp = await import("node:fs/promises");
 
-  // 1) 获取页面尺寸（72 DPI 像素）
-  let pageW = 960;
-  let pageH = 540;
-  try {
-    const pdfinfo = execFileSync("pdfinfo", [pdfPath], { encoding: "utf-8", timeout: 10000 });
-    const m = pdfinfo.match(/Page size:\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/);
-    if (m) {
-      pageW = Math.round(parseFloat(m[1]));
-      pageH = Math.round(parseFloat(m[2]));
-    }
-  } catch {
-    // 拿不到尺寸则假设标准 960×540
-  }
-
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "zscore-ai-crop-"));
-  const prefix = path.join(tmpDir, "p");
-
-  // 2) 裁切坐标（输出像素）
-  //
-  // ⚠️ 关键修复（2026-09-03）：pdftoppm 的 -x/-y/-W/-H 在带 -r 时是**输出像素**，
-  // 不是 72 DPI 点。原实现按 pageW/pageH（pdfinfo 报的"页大小"=点）直接算坐标，
-  // 同一份调用里既被解释成"小区域的点"、又被 pdftoppm 当"大区域的像素"——
-  // FULL_PAGE {0,0,1,1} 实际只输出 pageW×pageH 像素的图像（A4 = 595×842），
-  // 相当于整页的左上 ~36%×36%，下方正文全部丢失。
-  // 实测：测试5 利润表页被截到只剩"标题+营业收入/营业成本/税金及附加"4 行，
-  // "三、利润总额" 行根本不在画面内 → AI 只能返回 null 并附 ev="三、利润总额"（凭推断）。
-  //
-  // 正确做法：pageW/pageH（点）先 × dpi/72 换算到输出像素，再乘以百分比。
-  const pxW = Math.round((pageW * dpi) / 72);
-  const pxH = Math.round((pageH * dpi) / 72);
-  const x = Math.max(0, Math.round(crop.x_pct * pxW));
-  const y = Math.max(0, Math.round(crop.y_pct * pxH));
-  const w = Math.max(1, Math.round(crop.w_pct * pxW));
-  const h = Math.max(1, Math.round(crop.h_pct * pxH));
+  const outPng = path.join(tmpDir, "crop.png");
 
   try {
-    // pdftoppm 裁切（-x/-y/-W/-H 在 72 DPI 坐标）
-    execFileSync(
-      "pdftoppm",
-      [
-        "-png",
-        "-r", String(dpi),
-        "-x", String(x),
-        "-y", String(y),
-        "-W", String(w),
-        "-H", String(h),
-        "-f", String(page), // 起始页
-        "-l", String(page), // 结束页（只取指定页）
-        pdfPath,
-        prefix,
-      ],
-      { timeout: 60000, stdio: "pipe" }
-    );
+    const res = await runPdfRenderSafe([
+      "crop",
+      pdfPath,
+      String(crop.x_pct),
+      String(crop.y_pct),
+      String(crop.w_pct),
+      String(crop.h_pct),
+      String(dpi),
+      String(page),
+      outPng,
+    ]);
 
-    const files = (await fsp.readdir(tmpDir))
-      .filter((f) => f.endsWith(".png"))
-      .sort();
-    if (files.length === 0) return null;
-
-    const buf = await fsp.readFile(path.join(tmpDir, files[0]));
+    const buf = await fsp.readFile(outPng);
     return buf.toString("base64");
   } catch {
     return null;
@@ -555,23 +579,17 @@ export interface PdfMeta {
 /** 读取 PDF 页数与页面尺寸（72 DPI 点）。失败时回退到 960×540 / 1 页。 */
 export async function getPdfMeta(pdfPath: string): Promise<PdfMeta> {
   const fallback: PdfMeta = { pageCount: 1, pageW: 960, pageH: 540 };
-  try {
-    const { execFileSync } = await import("node:child_process");
-    const out = execFileSync("pdfinfo", [pdfPath], {
-      encoding: "utf-8",
-      timeout: 10000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const pc = out.match(/Pages:\s+(\d+)/);
-    const ps = out.match(/Page size:\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/);
-    return {
-      pageCount: pc ? Math.max(1, parseInt(pc[1], 10)) : 1,
-      pageW: ps ? Math.round(parseFloat(ps[1])) : fallback.pageW,
-      pageH: ps ? Math.round(parseFloat(ps[2])) : fallback.pageH,
-    };
-  } catch {
-    return fallback;
-  }
+  const res = await runPdfRenderSafe(["meta", pdfPath]);
+  if (!res) return fallback;
+
+  const pageCount = Number(res.pageCount);
+  const pageW = Number(res.pageW);
+  const pageH = Number(res.pageH);
+  return {
+    pageCount: Number.isFinite(pageCount) ? Math.max(1, pageCount) : 1,
+    pageW: Number.isFinite(pageW) ? pageW : fallback.pageW,
+    pageH: Number.isFinite(pageH) ? pageH : fallback.pageH,
+  };
 }
 
 export type StatementKind = "BS" | "IS" | "CF" | "OTHER";
@@ -685,21 +703,14 @@ export async function detectStatementPages(
 }
 
 /**
- * 从电子 PDF 提取全文本（用 pdftotext）。
+ * 从电子 PDF 提取全文本（Python 侧 pdfplumber，替代 poppler 的 pdftotext）。
  */
 export async function extractPdfText(pdfPath: string): Promise<string> {
-  const { execFileSync } = await import("node:child_process");
-  try {
-    const txt = execFileSync("pdftotext", ["-layout", pdfPath, "-"], {
-      timeout: 30000,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      maxBuffer: 1024 * 1024 * 2,
-    });
-    return txt || "";
-  } catch {
-    return "";
-  }
+  const res = await runPdfRenderSafe(["text", pdfPath], {
+    timeoutMs: 120000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return res && typeof res.text === "string" ? res.text : "";
 }
 
 // ════════════════════════════════════════════════════════════════════

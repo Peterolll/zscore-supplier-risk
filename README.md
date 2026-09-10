@@ -74,8 +74,13 @@
 
 ## 下载与安装
 
-> **完全没用过终端？** 先看 **[新手安装指南](./docs/新手安装指南.md)** —— 从「怎么打开终端」开始，
+> **完全没用过命令行？** 先看下面这份零基础教程 —— 从「怎么打开命令行」开始，
 > 一步一步复制粘贴即可，含常见报错排查。
+>
+> | 你的系统 | 教程 |
+> |---|---|
+> | **Windows 10 / 11** | **[`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md)** |
+> | **macOS** | [`docs/新手安装指南.md`](./docs/新手安装指南.md) |
 >
 > **两种方式的区别只有「怎么把文件夹弄到电脑上」**；文件夹到手之后，启动步骤完全相同。
 
@@ -127,9 +132,18 @@ git pull
 
 ### 一键启动（推荐）
 
+首次需先完成「从源码运行」中的依赖安装。之后每次启动只需一条命令：
+
+**macOS / Linux**
+
 ```bash
-# 首次需先完成「从源码运行」中的依赖安装
 ./start-zscore.sh
+```
+
+**Windows（PowerShell）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 ```
 
 脚本会自动定位仓库根目录、后台启动开发服务器（关闭终端不中断），并在就绪后提示访问地址：
@@ -137,6 +151,9 @@ git pull
 ```
 启动成功 → http://localhost:3000
 ```
+
+> Windows 上加 `-ExecutionPolicy Bypass` 是因为系统默认禁止运行 `.ps1` 脚本。
+> 该参数**只对本次运行生效**，不会修改你的系统设置。
 
 ---
 
@@ -146,12 +163,26 @@ git pull
 
 在**仓库根目录**执行：
 
+**macOS / Linux**
+
 ```bash
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
+**Windows（PowerShell）**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+> PDF 渲染与文本提取全部使用 Python 库（`pypdfium2` + `pdfplumber`），
+> **无需**安装 poppler、Homebrew 等外部程序，三种系统安装方式一致。
+
 ### 2. 安装 Web 前端依赖
+
+两种系统相同：
 
 ```bash
 cd zscore-web
@@ -169,10 +200,12 @@ npm run dev
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ZSCORE_PYTHON` | 自动探测（仓库根 `.venv` → 系统 `python3`） | Python 解释器，需能 `import zscore_pipeline` |
+| `ZSCORE_PYTHON` | 自动探测（仓库根 `.venv` → PATH 上依赖齐全的解释器） | Python 解释器，需能 `import zscore_pipeline` |
 | `ZSCORE_WORKSPACE` | `zscore-web` 的上级目录 | 引擎工作目录，需包含 `zscore_pipeline/` 包 |
 
-通常无需手动配置。若自动探测失败，可在 `zscore-web/.env.local` 中显式指定 `ZSCORE_PYTHON`。
+通常无需手动配置。自动探测会**逐个试跑 `import`**，选中真正装了依赖的那个解释器
+（macOS 上是 `.venv/bin/python3`，Windows 上是 `.venv\Scripts\python.exe`）；
+若仍失败，可在 `zscore-web/.env.local` 中显式指定 `ZSCORE_PYTHON`。
 
 ---
 
@@ -183,18 +216,22 @@ zscore-supplier-risk/
 ├── README.md                  # 本文件（中文）
 ├── README.en.md               # English README
 ├── requirements.txt           # Python 引擎依赖
-├── start-zscore.sh            # 一键启动脚本
+├── start-zscore.sh            # 一键启动脚本（macOS / Linux）
+├── start-zscore.ps1           # 一键启动脚本（Windows PowerShell）
 ├── .gitignore                 # 排除密钥 / 真实财报 / 数据库
 │
 ├── docs/                      # 文档归档（详见 docs/README.md）
 │   ├── README.md              #   文档索引
+│   ├── 新手安装指南-Windows.md #   零基础安装教程（Windows）
+│   ├── 新手安装指南.md         #   零基础安装教程（macOS）
 │   ├── design/                #   设计与评审文档
 │   ├── reports/               #   验证 / 修复 / 审查报告
 │   └── samples/               #   财报版式样本截图（脱敏）
 │
 ├── scripts/
 │   ├── push-to-github.sh      # GitHub 推送辅助脚本
-│   └── check-docs-links.py    # 文档链接与锚点校验
+│   ├── check-docs-links.py    # 文档链接与锚点校验
+│   └── verify_pdf_render.py   # PDF 渲染回归：pypdfium2 与 poppler 输出等价性
 │
 ├── zscore-web/                # Next.js 16 Web 应用
 │   ├── app/                   #   页面与 API 路由
@@ -205,6 +242,7 @@ zscore-supplier-risk/
 │   └── README.md / README.en.md  # 中英文用户手册
 │
 └── zscore_pipeline/           # Python 计算引擎
+    ├── pdf_render.py          #   PDF 渲染与文本提取（pypdfium2，不依赖 poppler）
     ├── m2_extract*.py         #   文本 / PPTX 抽取
     ├── m3_locate.py           #   报表页定位
     ├── m4_map.py              #   三级映射与 EBIT 推导
@@ -220,7 +258,8 @@ zscore-supplier-risk/
 
 | 文档 | 语言 | 说明 |
 |------|------|------|
-| [`docs/新手安装指南.md`](./docs/新手安装指南.md) | 中 | **零基础安装教程**（没用过终端就先看这个） |
+| [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md) | 中 | **Windows 零基础安装教程**（PowerShell / `python` / `.ps1` 启动脚本） |
+| [`docs/新手安装指南.md`](./docs/新手安装指南.md) | 中 | **macOS 零基础安装教程**（终端 / `python3` / `.sh` 启动脚本） |
 | [`docs/README.md`](./docs/README.md) | 中 | **文档总索引**（从这里开始） |
 | [`zscore-web/README.md`](./zscore-web/README.md) | 中 | 用户手册 v2.0：功能总览、架构、使用流程 |
 | [`zscore-web/README.en.md`](./zscore-web/README.en.md) | EN | User Manual (English) |

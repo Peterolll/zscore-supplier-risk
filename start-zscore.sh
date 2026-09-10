@@ -17,6 +17,15 @@ if lsof -ti :$PORT > /dev/null 2>&1; then
   exit 0
 fi
 
+# 清理上次异常退出残留的锁文件
+# Next.js 开发模式若被强制关闭（或终端被回收），会残留 .next/dev/lock，
+# 导致下次启动自动改用 3001 等其它端口，用户按 3000 访问就会失败。
+LOCK_FILE="$WEB_DIR/.next/dev/lock"
+if [ -f "$LOCK_FILE" ]; then
+  echo "清理上次残留的锁文件：$LOCK_FILE"
+  rm -f "$LOCK_FILE"
+fi
+
 cd "$WEB_DIR"
 nohup ./node_modules/.bin/next dev > "$LOG_FILE" 2>&1 &
 disown

@@ -194,7 +194,10 @@ export async function POST(
     try {
       images = await pdfToImagesBase64(pdfPath, 5);
       if (images.length === 0 && !pdfText.trim()) {
-        errors.push("PDF 转图片与文本提取均失败（可能缺少 pdftoppm / pdftotext）");
+        errors.push(
+          "PDF 转图片与文本提取均失败：Python 引擎可能未就绪。" +
+            "请在项目根目录创建虚拟环境并安装依赖后重试（见 docs/新手安装指南.md）"
+        );
       }
     } catch (e: any) {
       errors.push(`PDF 转图片失败：${e?.message || String(e)}`);

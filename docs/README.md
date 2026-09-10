@@ -13,11 +13,12 @@
 
 ```
 docs/
-├── README.md           # 本文件 · this index
-├── 新手安装指南.md      # 零基础安装教程 · beginner install guide
-├── design/             # 设计与评审文档 · design & review documents
-├── reports/            # 验证 / 修复 / 审查报告 · verification, fix & review reports
-└── samples/            # 财报版式样本（脱敏）· statement layout samples (redacted)
+├── README.md                # 本文件 · this index
+├── 新手安装指南-Windows.md   # 零基础安装教程（Windows）· beginner guide for Windows
+├── 新手安装指南.md           # 零基础安装教程（macOS）· beginner guide for macOS
+├── design/                  # 设计与评审文档 · design & review documents
+├── reports/                 # 验证 / 修复 / 审查报告 · verification, fix & review reports
+└── samples/                 # 财报版式样本（脱敏）· statement layout samples (redacted)
 ```
 
 ---
@@ -94,7 +95,7 @@ docs/
 首次了解本项目，推荐按以下顺序：
 
 1. **[`../README.md`](../README.md)** — 项目是什么、怎么装、怎么跑
-2. **[`新手安装指南.md`](./新手安装指南.md)** — 没用过终端？照着这个一步步做
+2. **[`新手安装指南-Windows.md`](./新手安装指南-Windows.md)** / **[`新手安装指南.md`](./新手安装指南.md)** — 没用过命令行？按系统选一份照着做
 3. **[`design/供应商Z-Score自动化_PRD.md`](./design/供应商Z-Score自动化_PRD.md)** — 功能边界与验收标准
 4. **[`design/供应商Z-Score自动化_方案设计v2.md`](./design/供应商Z-Score自动化_方案设计v2.md)** — 技术实现方案
 5. **[`design/供应商Z-Score自动化_计算工作流图.html`](./design/供应商Z-Score自动化_计算工作流图.html)** — 端到端流程可视化

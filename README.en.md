@@ -107,7 +107,8 @@ All design documents, review notes, and verification reports are archived under 
 
 | Category | Directory | Contents |
 |----------|-----------|----------|
-| Getting started | [`docs/新手安装指南.md`](./docs/新手安装指南.md) | **Beginner install guide** (Chinese): open Terminal → download → install deps → launch → troubleshoot |
+| Getting started | [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md) | **Beginner install guide for Windows** (Chinese): open PowerShell → download → install deps → launch → troubleshoot |
+| Getting started | [`docs/新手安装指南.md`](./docs/新手安装指南.md) | **Beginner install guide for macOS** (Chinese): open Terminal → download → install deps → launch → troubleshoot |
 | Design & review | [`docs/design/`](./docs/design) | PRD, solution design, design review, statement sample analysis, workflow diagram |
 | Reports & post-mortems | [`docs/reports/`](./docs/reports) | End-to-end verification report, defect root-cause & fix report |
 | Samples & assets | [`docs/samples/`](./docs/samples) | Financial-statement layout sample screenshots (redacted) |
@@ -128,9 +129,18 @@ All design documents, review notes, and verification reports are archived under 
 
 ### One-command Startup (recommended)
 
+Install dependencies first (see "Run From Source" below); after that, starting is a single command.
+
+**macOS / Linux**
+
 ```bash
-# Install dependencies first — see "Run From Source" below
 ./start-zscore.sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 ```
 
 The script locates the repo root automatically, starts the dev server in the background (survives terminal close), and prints the URL once ready:
@@ -138,6 +148,9 @@ The script locates the repo root automatically, starts the dev server in the bac
 ```
 启动成功 → http://localhost:3000
 ```
+
+> On Windows the `-ExecutionPolicy Bypass` flag is required because PowerShell blocks `.ps1`
+> scripts by default. It applies to **this run only** and changes nothing on your system.
 
 ---
 
@@ -147,12 +160,27 @@ The script locates the repo root automatically, starts the dev server in the bac
 
 Run from the **repository root**:
 
+**macOS / Linux**
+
 ```bash
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+> PDF rendering and text extraction use pure Python packages (`pypdfium2` + `pdfplumber`) —
+> **no** poppler, Homebrew, or other external programs are needed, and installation is
+> identical across the three platforms.
+
 ### 2. Install web frontend dependencies
+
+Same on both platforms:
 
 ```bash
 cd zscore-web
@@ -170,10 +198,13 @@ npm run dev
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZSCORE_PYTHON` | Auto-detected (repo-root `.venv` → system `python3`) | Python interpreter that can `import zscore_pipeline` |
+| `ZSCORE_PYTHON` | Auto-detected (repo-root `.venv` → first PATH interpreter with all deps) | Python interpreter that can `import zscore_pipeline` |
 | `ZSCORE_WORKSPACE` | Parent directory of `zscore-web` | Engine working directory, must contain the `zscore_pipeline/` package |
 
-Usually no configuration is needed. If auto-detection fails, set `ZSCORE_PYTHON` explicitly in `zscore-web/.env.local`.
+Usually no configuration is needed. Auto-detection **probes each candidate with a real
+`import`** and picks the one that actually has the dependencies (`.venv/bin/python3` on
+macOS, `.venv\Scripts\python.exe` on Windows). If it still fails, set `ZSCORE_PYTHON`
+explicitly in `zscore-web/.env.local`.
 
 ---
 
@@ -184,18 +215,22 @@ zscore-supplier-risk/
 ├── README.md                  # Chinese README
 ├── README.en.md               # This file (English)
 ├── requirements.txt           # Python engine dependencies
-├── start-zscore.sh            # One-command startup script
+├── start-zscore.sh            # One-command startup script (macOS / Linux)
+├── start-zscore.ps1           # One-command startup script (Windows PowerShell)
 ├── .gitignore                 # Excludes secrets / real statements / databases
 │
 ├── docs/                      # Documentation archive (see docs/README.md)
 │   ├── README.md              #   Documentation index
+│   ├── 新手安装指南-Windows.md #   Beginner install guide (Windows)
+│   ├── 新手安装指南.md         #   Beginner install guide (macOS)
 │   ├── design/                #   Design & review documents
 │   ├── reports/               #   Verification / fix / review reports
 │   └── samples/               #   Statement layout samples (redacted)
 │
 ├── scripts/
 │   ├── push-to-github.sh      # GitHub push helper script
-│   └── check-docs-links.py    # Docs link & anchor checker
+│   ├── check-docs-links.py    # Docs link & anchor checker
+│   └── verify_pdf_render.py   # PDF render regression: pypdfium2 vs poppler equivalence
 │
 ├── zscore-web/                # Next.js 16 web application
 │   ├── app/                   #   Pages and API routes
@@ -206,6 +241,7 @@ zscore-supplier-risk/
 │   └── README.md / README.en.md  # Bilingual user manual
 │
 └── zscore_pipeline/           # Python computation engine
+    ├── pdf_render.py          #   PDF rendering & text extraction (pypdfium2, no poppler)
     ├── m2_extract*.py         #   Text / PPTX extraction
     ├── m3_locate.py           #   Statement page location
     ├── m4_map.py              #   Three-tier mapping & EBIT derivation

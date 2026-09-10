@@ -26,6 +26,7 @@ DEFAULT_TARGETS = [
     "README.md",
     "README.en.md",
     "docs/README.md",
+    "docs/新手安装指南-Windows.md",
     "docs/新手安装指南.md",
     "zscore-web/README.md",
     "zscore-web/README.en.md",

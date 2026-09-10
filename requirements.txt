@@ -1,10 +1,22 @@
 # Z-Score 计算引擎（zscore_pipeline）Python 依赖
-# 安装：python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+#
+# macOS / Linux 安装：
+#     python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+# Windows 安装：
+#     python -m venv .venv && .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 pdfplumber>=0.11.0      # PDF 文本/表格抽取
 pypdf>=4.0.0            # 多份 PDF 合并
 python-pptx>=1.0.0      # PPTX 财报抽取
 pydantic>=2.0.0         # 数据模型与校验
 openpyxl>=3.1.0         # Excel 导出
+
+# PDF 页面渲染（扫描件 OCR、AI 识别裁图）
+# 说明：pypdfium2 与 Pillow 也是 pdfplumber 的传递依赖，这里显式声明，
+# 因为 zscore_pipeline/pdf_render.py 直接使用它们。二者都是**纯 Python 轮子**
+# （pypdfium2 自带 PDFium 二进制），不需要 poppler 等任何外部程序，
+# 因此 Windows / macOS / Linux 安装方式完全一致。
+pypdfium2>=4.18.0       # PDF 渲染（替代 poppler 的 pdftoppm）
+Pillow>=9.1.0           # 图像裁切与编码
 
 # 可选：扫描件 OCR 需要 GLM_API_KEY（视觉模型），不配置则电子文本财报不受影响

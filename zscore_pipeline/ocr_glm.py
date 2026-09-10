@@ -24,7 +24,12 @@ class OCRUnavailable(RuntimeError):
 
 
 def _render_pages(pdf_path: str | Path, dpi: int = 300, out_dir: Path | None = None) -> list[Path]:
-    """用 pdf2image 将扫描件逐页渲染为 PNG（依赖 poppler）。
+    """将扫描件逐页渲染为 PNG（pypdfium2，无需 poppler）。
+
+    渲染器变更（2026-09-10）：原先用 pdf2image，而 pdf2image 需要外部程序
+    poppler（pdftoppm）。poppler 在 Windows 上不是系统自带，要求用户手动下载、
+    解压、配 PATH —— 对非技术用户是硬门槛。改用 pypdfium2 后：它是 pdfplumber
+    的自带依赖（纯 Python 轮子，内含 PDFium），三平台一致、零额外安装。
 
     DPI=300：2026-08-27 实测发现 DPI=150 时 GLM-4V-Flash 会漏读页面下半部分
     （如资产负债表的权益类整块：盈余公积/未分配利润/所有者权益合计全丢），
@@ -34,18 +39,13 @@ def _render_pages(pdf_path: str | Path, dpi: int = 300, out_dir: Path | None = N
     现改为写入调用方传入的临时目录（由 ocr_pdf_via_glm 用 tempfile 管理），
     OCR 完成后整个目录自动销毁。
     """
-    from pdf2image import convert_from_path
-    images = convert_from_path(str(pdf_path), dpi=dpi)
+    from .pdf_render import render_pages
+
     if out_dir is None:
         out_dir = Path(tempfile.mkdtemp(prefix="zscore_ocr_"))
-    else:
-        out_dir.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for i, img in enumerate(images):
-        p = out_dir / f"page_{i+1:03d}.png"
-        img.save(p, "PNG")
-        paths.append(p)
-    return paths
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # max_pages=None → 渲染全部页（扫描件 OCR 需要整份文档）
+    return [Path(p) for p in render_pages(pdf_path, max_pages=None, dpi=dpi, out_dir=out_dir)]
 
 
 def _call_glm(image_path: str | Path, prompt: str) -> str:
