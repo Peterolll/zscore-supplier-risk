@@ -13,6 +13,7 @@
 - [第 0 步：先搞懂两件事](#第-0-步先搞懂两件事)
 - [名词速查](#名词速查)
 - [先检查：你的电脑装齐了没有](#先检查你的电脑装齐了没有)
+- [⚡ 懒人通道：一条命令从零装到能启动](#-懒人通道一条命令从零装到能启动)
 - [方式一：Git 克隆（推荐）](#方式一git-克隆推荐)
 - [方式二：下载 ZIP](#方式二下载-zip)
 - [共同步骤：启动系统](#共同步骤启动系统)
@@ -148,6 +149,43 @@ git version 2.47.0.windows.2
 
 ---
 
+## ⚡ 懒人通道：一条命令从零装到能启动
+
+> **这台电脑什么都没装也能用这一节。** 下面的命令只用 Windows 自带功能，
+> 不需要 Git、不需要 Node.js、不需要 Python —— 它会自己把这些装齐。
+
+把下面**整段**复制，粘进 PowerShell（它会一行一行执行）：
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+$desktop = [Environment]::GetFolderPath('Desktop')
+Invoke-WebRequest 'https://github.com/Peterolll/zscore-supplier-risk/archive/refs/heads/main.zip' -OutFile "$env:TEMP\zscore.zip"
+Expand-Archive "$env:TEMP\zscore.zip" $desktop -Force
+cd "$desktop\zscore-supplier-risk-main"
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+```
+
+它依次做了：
+
+1. 把项目下载并且解压到**桌面**
+2. 进入项目文件夹
+3. 运行环境准备脚本 —— 缺 Node.js / Python 就用 winget 装，然后装齐所有依赖
+
+**中途可能出现 1–2 次授权弹窗（UAC），点「是」即可。**
+
+最后看到 `环境准备完成，可以启动系统了` 就成功了，接着执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
+```
+
+> ⚠️ 如果桌面已经有 `zscore-supplier-risk-main` 文件夹，`Expand-Archive -Force`
+> 会**覆盖**里面的同名文件。第一次安装不用担心；想保留旧版请先改名。
+>
+> 想看清楚每一步在做什么、或者命令跑不通，请继续往下看**方式一 / 方式二**的手动流程。
+
+---
+
 ## 方式一：Git 克隆（推荐）
 
 ### 第 1 步：安装 Git（若已装可跳过）
@@ -261,9 +299,44 @@ pwd
 
 ## 共同步骤：启动系统
 
-> 下面的**第 1、2 步只需要做一次**（第一次装依赖）。以后启动见[下一节](#以后每次怎么用--怎么关)。
+> 下面的**第 1 步只需要做一次**（第一次装依赖）。以后启动见[下一节](#以后每次怎么用--怎么关)。
 >
 > 前提：你已经在项目文件夹里（`pwd` 显示的路径末尾是 `zscore-supplier-risk` 或 `zscore-supplier-risk-main`）。
+
+### 第 1 步：装依赖（一条命令 · 推荐）
+
+只要 Node.js 和 Python 已经装好（见[先检查](#先检查你的电脑装齐了没有)），
+**这一条命令就能把剩下的全部装完**：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+```
+
+它会依次完成：
+
+| 顺序 | 做什么 |
+|---|---|
+| 1 | 检查 Node.js / Python / Git，缺哪个就用 winget 装哪个 |
+| 2 | 新建 Python 环境 `.venv` 并安装 `requirements.txt`（直连失败自动换清华镜像重试） |
+| 3 | 安装网页依赖 `npm install`（失败自动换 npmmirror 镜像重试） |
+| 4 | 真跑一次 `import` 自检，确认计算引擎可用 |
+
+**看到这一行就算成功：**
+
+```
+环境准备完成，可以启动系统了
+```
+
+> ✅ **可以直接跳到[第 3 步：启动](#第-3-步回到项目根目录并启动)。**
+>
+> 如果它提示「以下项目未完成」，说明有东西没装上 —— 按列出的项对照
+> [常见问题排查](#常见问题排查)处理，**处理完重新运行本脚本即可**，
+> 它只会补做没完成的部分，已经装好的会自动跳过。
+
+<details>
+<summary>👉 脚本用不了 / 想手动一步步来？（点开看手动步骤）</summary>
+
+> 下面两步就是脚本内部做的事。手动做一遍完全可以，只是要自己盯报错。
 
 ### 第 1 步：装 Python 环境（约 2–3 分钟）
 
@@ -328,6 +401,8 @@ npm config set registry https://registry.npmmirror.com
 ```
 
 然后重新执行 `npm install`。
+
+</details>
 
 ### 第 3 步：回到项目根目录并启动
 
@@ -397,10 +472,10 @@ cd ~\Desktop\zscore-supplier-risk
 git pull
 ```
 
-拉完更新后，如果依赖有变化，重跑一次：
+拉完更新后，**重跑一次环境准备脚本**即可（它会自动跳过已经装好的部分，只补新的）：
 
 ```powershell
-cd zscore-web ; npm install ; cd ..
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 ```
 
 ### 关闭服务
@@ -423,6 +498,8 @@ Stop-Process -Name node -Force
 
 | 现象 | 原因 | 怎么办 |
 |---|---|---|
+| **不知道从哪下手 / 依赖总是装不干净** | —— | 先放手让脚本试一次：`powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1`。它会装全依赖并真跑一次自检，缺什么会直接列出来 |
+| `setup-windows.ps1` 报「系统没有 winget」 | 系统缺 winget（旧版 Windows） | 不影响，按提示手动下载安装缺失的组件，然后**重新运行本脚本** |
 | 输入 `python` **弹出微软应用商店** | 装的是 Windows 的「假 Python」存根 | 去 <https://www.python.org/downloads/windows/> 装真 Python，安装时**勾选 Add python.exe to PATH** |
 | `python -m venv .venv` 报 `No module named venv` | Python 安装不完整 | 重装 Python，安装选项里确保勾选 `pip` 与 `venv` |
 | `cd : 找不到路径` | 文件夹名写错 / 不在那个位置 | 先 `dir` 看看当前有什么；确认方式一是不带 `-main`、方式二带 `-main` |
@@ -445,16 +522,19 @@ Stop-Process -Name node -Force
 ## 一页速查卡
 
 ```powershell
-# ── 首次安装（只做一次）──
-cd ~\Desktop                                              # 走到桌面
-git clone https://github.com/Peterolll/zscore-supplier-risk.git
-cd zscore-supplier-risk                                   # 进入项目
-python -m venv .venv                                      # 建 Python 环境
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # 装 Python 依赖
-cd zscore-web ; npm install ; cd ..                       # 装网页依赖
+# ── 前置：先装 Node.js 和 Python（只做一次）──
+winget install OpenJS.NodeJS.LTS ; winget install Python.Python.3.12
+# 之后关掉并重新打开 PowerShell
+
+# ── 拿到项目 ──
+cd ~\Desktop
+git clone https://github.com/Peterolll/zscore-supplier-risk.git   # 没装 Git 就用「下载 ZIP」方式
+cd zscore-supplier-risk
+
+# ── 一键装完全部依赖（只做一次，可重复运行）──
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 
 # ── 每次启动 ──
-cd ~\Desktop\zscore-supplier-risk
 powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 # 浏览器打开 http://localhost:3000
 
@@ -473,6 +553,7 @@ Stop-Process -Name node -Force
 | 建 Python 虚拟环境 | `python3 -m venv .venv` | `python -m venv .venv` |
 | 调用 venv 里的 Python | `./.venv/bin/python` | `.\.venv\Scripts\python.exe` |
 | 装 Python 依赖 | `./.venv/bin/pip install -r requirements.txt` | `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
+| 一键装全部依赖 | （手动两步） | `powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1` |
 | 启动系统 | `bash start-zscore.sh` | `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1` |
 | 关闭服务 | `lsof -ti :3000 \| xargs kill` | `Stop-Process -Name node -Force` |
 

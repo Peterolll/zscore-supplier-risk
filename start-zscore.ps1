@@ -1,4 +1,4 @@
-<#
+﻿<#
     Z-Score 供应商信用评估系统 —— Windows 一键启动脚本
     ------------------------------------------------------------------
     用法（在本文件所在目录打开 PowerShell 后执行）：
@@ -11,6 +11,10 @@
 # 注意：此处刻意不用 "Stop"。PowerShell 5.1 下把原生命令（python / npm）的
 # stderr 输出升级为终止性错误会误伤正常的告警信息，故统一用显式判断处理错误。
 $ErrorActionPreference = "Continue"
+
+# 中文 Windows 的默认码页是 GBK，而 node / npm 输出为 UTF-8，
+# 不统一成 UTF-8 的话日志里的中文（含 next 的报错）会变成乱码。
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 # ---------- 1. 定位目录 ----------
 # $PSScriptRoot = 本脚本所在目录 = 仓库根目录；web 工程在其下的 zscore-web\

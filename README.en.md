@@ -127,9 +127,24 @@ All design documents, review notes, and verification reports are archived under 
 
 > Scanned-document OCR additionally requires a `GLM_API_KEY` (vision model). **Without it, digital-text statements still work** — scanned files return an explicit "pending" status instead of failing.
 
+### One-command Dependency Setup (Windows only, recommended)
+
+On Windows, a single command installs everything (it will auto-install Node.js / Python via winget if missing):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+```
+
+It checks and installs prerequisites → creates `.venv` and installs the Python deps
+(falls back to a China mirror on network failure) → installs the web deps → runs a real
+`import` self-check. **Idempotent**: anything already installed is skipped.
+
+> macOS / Linux users: just follow the two manual steps under "Run From Source" below
+> (or see [`docs/新手安装指南.md`](./docs/新手安装指南.md)).
+
 ### One-command Startup (recommended)
 
-Install dependencies first (see "Run From Source" below); after that, starting is a single command.
+Install dependencies first (see above); after that, starting is a single command.
 
 **macOS / Linux**
 
@@ -229,7 +244,9 @@ zscore-supplier-risk/
 │
 ├── scripts/
 │   ├── push-to-github.sh      # GitHub push helper script
+│   ├── setup-windows.ps1      # Windows one-command dependency setup (incl. prerequisites)
 │   ├── check-docs-links.py    # Docs link & anchor checker
+│   ├── check-ps1-syntax.py    # .ps1 syntax & UTF-8 BOM checker (no PowerShell required)
 │   └── verify_pdf_render.py   # PDF render regression: pypdfium2 vs poppler equivalence
 │
 ├── zscore-web/                # Next.js 16 web application

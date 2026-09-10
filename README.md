@@ -130,9 +130,23 @@ git pull
 
 > 扫描件 OCR 需要额外配置 `GLM_API_KEY`（视觉模型）。**不配置不影响电子文本财报**，扫描件会返回明确的「待处理」状态而非报错。
 
+### 一键装依赖（仅 Windows，推荐）
+
+Windows 用户拿到项目后，**一条命令装完全部依赖**（缺 Node.js / Python 时会自动用 winget 安装）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+```
+
+脚本会：检查并补装前置组件 → 新建 `.venv` 并装 Python 依赖（失败自动换国内镜像重试）
+→ 装网页依赖 → 真跑一次 `import` 自检。**可重复运行**，已装好的会自动跳过。
+
+> macOS / Linux 用户按下方「从源码运行」手动两步即可（或参考
+> [`docs/新手安装指南.md`](./docs/新手安装指南.md)）。
+
 ### 一键启动（推荐）
 
-首次需先完成「从源码运行」中的依赖安装。之后每次启动只需一条命令：
+首次需先完成依赖安装（见上）。之后每次启动只需一条命令：
 
 **macOS / Linux**
 
@@ -229,8 +243,10 @@ zscore-supplier-risk/
 │   └── samples/               #   财报版式样本截图（脱敏）
 │
 ├── scripts/
+│   ├── setup-windows.ps1      # Windows 一键装依赖（含前置组件自动补装）
 │   ├── push-to-github.sh      # GitHub 推送辅助脚本
 │   ├── check-docs-links.py    # 文档链接与锚点校验
+│   ├── check-ps1-syntax.py    # .ps1 语法与 UTF-8 BOM 校验（无需 PowerShell）
 │   └── verify_pdf_render.py   # PDF 渲染回归：pypdfium2 与 poppler 输出等价性
 │
 ├── zscore-web/                # Next.js 16 Web 应用
