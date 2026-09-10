@@ -95,12 +95,6 @@ git pull
 
 > Best when you only want to browse the code / docs, or Git is unavailable in your environment.
 
-### Option 3: Release Package (if available)
-
-If a packaged build is offered on the repository's **Releases** page, download the archive directly to skip dependency setup:
-
-<https://github.com/Peterolll/zscore-supplier-risk/releases>
-
 ### Just want the docs?
 
 All design documents, review notes, and verification reports are archived under **[`docs/`](./docs/README.md)** and can be read directly on GitHub — no need to download the code:

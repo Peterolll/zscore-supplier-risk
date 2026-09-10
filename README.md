@@ -95,12 +95,6 @@ git pull
 
 > 适用于只想快速查看代码 / 文档、或所在环境无法使用 Git 的情况。
 
-### 方式三：Release 发布包（如有）
-
-若仓库的 **Releases** 页面提供了打包版本，可直接下载对应压缩包，免去依赖安装步骤：
-
-<https://github.com/Peterolll/zscore-supplier-risk/releases>
-
 ### 只想看文档？
 
 所有设计文档、评审报告与验证报告已归档在 **[`docs/`](./docs/README.md)** 目录，可直接在 GitHub 网页上在线阅读，无需下载代码：
