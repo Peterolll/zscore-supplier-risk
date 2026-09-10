@@ -3,6 +3,8 @@
 // 系数严格对齐 Python 端 config.py（Z_ORIGINAL_COEF / Z_PRIME_COEF / Z_DOUBLE_PRIME_COEF）。
 import type { ZModel, RiskZone, Industry, FieldRow } from "./types";
 import { Z_COEFFICIENTS, Z_THRESHOLDS, FACTOR_META } from "./constants";
+import type { Messages } from "./messages/types";
+import { zh as zhMessages } from "./messages/zh";
 
 export type XValues = {
   X1?: number | null;
@@ -83,16 +85,24 @@ export function fieldNeedsConfirm(f: {
   return false;
 }
 
-/** 字段确认状态展示信息：{ label, tone }，tone 用于角标配色 */
+/**
+ * 字段确认状态展示信息：{ label, tone }，tone 用于角标配色。
+ *
+ * 为避免破坏 lib 与 server component 的导入边界（此文件被多个 RSC import），
+ * 默认走中文 messages；要 i18n 时调用方传入 tMessages 即可。
+ */
 export function fieldStatus(
-  f: { method?: string | null; confidence?: number | null } | null | undefined
+  f: { method?: string | null; confidence?: number | null } | null | undefined,
+  tMessages?: Messages
 ): { label: string; tone: "ok" | "warn" } {
-  if (!f) return { label: "未提取", tone: "warn" };
-  if (f.method === "manual") return { label: "人工补录", tone: "warn" };
-  if (f.method === "glm_ocr") return { label: "OCR待核", tone: "warn" };
-  if (f.method === "derived") return { label: "推算待确认", tone: "warn" };
-  if ((f.confidence ?? 1) < 1.0) return { label: "待确认", tone: "warn" };
-  return { label: "已确认", tone: "ok" };
+  const msgs = tMessages ?? zhMessages;
+  const fs = msgs.fieldStatus;
+  if (!f) return { label: fs.notExtracted, tone: "warn" };
+  if (f.method === "manual") return { label: fs.manual, tone: "warn" };
+  if (f.method === "glm_ocr") return { label: fs.ocrPending, tone: "warn" };
+  if (f.method === "derived") return { label: fs.derived, tone: "warn" };
+  if ((f.confidence ?? 1) < 1.0) return { label: fs.pending, tone: "warn" };
+  return { label: fs.confirmed, tone: "ok" };
 }
 
 /** 一次性：给定行业 + X 因子，返回 Z 与风险区 */

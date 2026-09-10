@@ -17,16 +17,17 @@ import {
 import {
   Z_FORMULA,
   ZONE_COLORS,
-  ZONE_LABELS,
-  INDUSTRY_LABELS,
-  LISTED_LABELS,
 } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n";
+import { translateGate } from "@/lib/messages";
 import type { RunDetail, RiskZone, Industry } from "@/lib/types";
 
 const ALL_X = ["X1", "X2", "X3", "X4", "X5"] as const;
 
 export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const router = useRouter();
+  const { lang, t } = useI18n();
+  const te = t.enums;
   const { run, supplier, factors, fields, override } = detail;
   const runId = run.id;
 
@@ -60,6 +61,15 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const overridden = riskOverride !== "";
 
   const liveFactors = ALL_X.map((k) => ({ key: k, value: xValues[k] }));
+
+  // 翻译 ZONE_LABELS 与闸门（dict key → 当前语言文本）
+  const zoneLabelMap: Record<RiskZone, string> = {
+    safe: t.zones.safe,
+    grey: t.zones.grey,
+    distress: t.zones.distress,
+    unknown: t.zones.unknown,
+  };
+  const translateGateLocal = (key: string): string => translateGate(t, key);
 
   // 子指标计算明细（展示用：含义 + 公式 + 代入数值演算 + 系数×值=对Z贡献）
   const breakdowns: FactorBreakdown[] = buildFactorBreakdown(
@@ -98,18 +108,18 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setMsg("保存失败：" + (data.error || res.status));
+        setMsg(t.detail.saveFailPrefix + (data.error || res.status));
       } else {
         setMsg(
           Object.keys(changed).length
-            ? `已保存 ${Object.keys(changed).length} 项修正并重新计算 Z ✅`
-            : "已保存 ✅"
+            ? t.detail.savePartial(Object.keys(changed).length)
+            : t.detail.saveOk
         );
         setFieldEdits({}); // 清空编辑态，输入框改回显示存储值
         router.refresh();
       }
     } catch (e: any) {
-      setMsg("保存失败：" + (e?.message || "网络错误"));
+      setMsg(t.detail.saveFailPrefix + (e?.message || "网络错误"));
     } finally {
       setSaving(false);
     }
@@ -121,17 +131,17 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
 
   // 可编辑财务字段（抓不到时人工手填）；初值取已存储值
   const EDIT_FIELDS: { key: string; label: string }[] = [
-    { key: "current_assets", label: "流动资产" },
-    { key: "current_liabilities", label: "流动负债" },
-    { key: "total_assets", label: "总资产" },
-    { key: "total_liabilities", label: "总负债" },
-    { key: "equity_total", label: "权益总计(账面)" },
-    { key: "equity_value", label: "股权价值(市值)" },
-    { key: "retained_earnings", label: "留存收益" },
-    { key: "revenue", label: "营业收入" },
-    { key: "profit_before_tax", label: "税前利润" },
-    { key: "interest_expense", label: "利息费用" },
-    { key: "ebit", label: "息税前利润(EBIT)" },
+    { key: "current_assets", label: lang === "en" ? "Current Assets" : "流动资产" },
+    { key: "current_liabilities", label: lang === "en" ? "Current Liabilities" : "流动负债" },
+    { key: "total_assets", label: lang === "en" ? "Total Assets" : "总资产" },
+    { key: "total_liabilities", label: lang === "en" ? "Total Liabilities" : "总负债" },
+    { key: "equity_total", label: lang === "en" ? "Book Equity" : "权益总计(账面)" },
+    { key: "equity_value", label: lang === "en" ? "Market Cap" : "股权价值(市值)" },
+    { key: "retained_earnings", label: lang === "en" ? "Retained Earnings" : "留存收益" },
+    { key: "revenue", label: lang === "en" ? "Revenue" : "营业收入" },
+    { key: "profit_before_tax", label: lang === "en" ? "PBT" : "税前利润" },
+    { key: "interest_expense", label: lang === "en" ? "Interest Expense" : "利息费用" },
+    { key: "ebit", label: lang === "en" ? "EBIT" : "息税前利润(EBIT)" },
   ];
   const [fieldEdits, setFieldEdits] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
@@ -169,7 +179,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       // 后端可能在 HTTP 200 下返回 ok=false（AI 全部失败但请求本身成功）
       if (!res.ok) {
         // HTTP 非 200（404/401/500 等）才是真正的请求失败
-        const errMsg = "AI 分析失败：" + (data.error || data.message || `HTTP ${res.status}`);
+        const errMsg = t.detail.aiFailPrefix + (data.error || data.message || `HTTP ${res.status}`);
         if (fieldKey) {
           setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
         } else {
@@ -180,7 +190,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       if (!data.ok) {
         // HTTP 200 但 ok=false → AI 调用失败（如 API Key 过期、模型不可用等）
         const errDetail = data.error || data.message || data.errors?.join("; ") || "未知原因";
-        const errMsg = "AI 分析失败：" + errDetail;
+        const errMsg = t.detail.aiFailPrefix + errDetail;
         if (fieldKey) {
           setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
           setFieldAiMsg((prev) => ({ ...prev, [fieldKey]: errMsg }));
@@ -191,7 +201,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       }
       const sugs = data.suggestions || [];
       if (sugs.length === 0) {
-        const emptyMsg = "AI 分析完成，但未找到可补全的字段。" + (data.errors ? "（" + data.errors.join("; ") + "）" : "");
+        const emptyMsg = t.detail.aiEmpty + (data.errors ? "（" + data.errors.join("; ") + "）" : "");
         if (fieldKey) {
           setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
           setFieldAiMsg((prev) => ({ ...prev, [fieldKey]: emptyMsg }));
@@ -216,9 +226,10 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       const filledCount = Object.keys(newSugs).length;
       setAiSuggestions((prev) => ({ ...prev, ...newSugs }));
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      const models = data.models_used ? "（模型：" + data.models_used.join(", ") + "）" : "";
-      const modeUsed = data.mode ? `[${data.mode}${data.fallback ? " ← unified fallback" : ""}]` : "";
-      const resultMsg = `AI 分析完成 ${modeUsed} ${models} 共 ${filledCount} 条建议（${elapsed}s），请逐条核对后点击"采纳"替换原值，或"忽略"保留原数字。`;
+      const models = data.models_used ? data.models_used.join(", ") : "";
+      const modeUsed = data.mode ?? "";
+      const fallbackNote = data.fallback ? " ← unified fallback" : "";
+      const resultMsg = t.detail.aiResultFmt(modeUsed, models, filledCount, elapsed, fallbackNote);
       if (fieldKey) {
         setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
         setFieldAiMsg((prev) => ({ ...prev, [fieldKey]: resultMsg }));
@@ -226,7 +237,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
         setAiMsg(resultMsg);
       }
     } catch (e: any) {
-      const errMsg = "AI 分析失败：" + (e?.message || "网络错误");
+      const errMsg = t.detail.aiFailPrefix + (e?.message || "网络错误");
       if (fieldKey) {
         setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
         setFieldAiMsg((prev) => ({ ...prev, [fieldKey]: errMsg }));
@@ -267,24 +278,24 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
         <RiskBadge zone={liveZone} />
         {overridden && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-400 bg-amber-50 text-amber-700">
-            人工覆盖
+            {t.detail.manualOverride}
           </span>
         )}
         <span className="text-xs text-gray-600">
           {model} · {run.method}
-          {run.annualized ? ` · 流量年化×${run.annualize_factor}` : ""} · {run.created_at}
+          {run.annualized ? t.detail.annualizedSuffix(run.annualize_factor) : ""} · {run.created_at}
         </span>
       </div>
       <div className="text-xs text-gray-600">
-        {listed ? LISTED_LABELS.listed : LISTED_LABELS.unlisted} · {INDUSTRY_LABELS[industry]} · {supplier?.period} · {supplier?.gaap} · {supplier?.currency}
+        {listed ? te.listed : te.unlisted} · {industry === "manufacturing" ? te.manufacturing : te.service} · {supplier?.period} · {supplier?.gaap} · {supplier?.currency}
       </div>
 
       {/* 待人工确认横幅 */}
       {needsConfirmCount > 0 && (
         <div className="border border-amber-300 bg-amber-50 rounded-lg px-3 py-2 text-sm text-amber-800 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold">⚠ {needsConfirmCount} 项数字待人工确认</span>
-            <span className="text-amber-700/90">含人工补录 / OCR 识别 / 回退推导值。可点击 <b>🤖 AI 分析补全</b>（或各字段旁的 🤖）由 AI 自动识别，识别结果需你逐条「采纳」后才替换原值。</span>
+            <span className="font-semibold">{t.detail.needsConfirmBanner(needsConfirmCount)}</span>
+            <span className="text-amber-700/90">{t.detail.needsConfirmHint}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -292,10 +303,10 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
               disabled={aiAnalyzing}
               className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50"
             >
-              {aiAnalyzing ? "🤖 AI 分析中…" : "🤖 AI 分析补全"}
+              {aiAnalyzing ? t.detail.aiBtnBusy : t.detail.aiBtn}
             </button>
             <a href="/settings" className="text-xs text-indigo-600 hover:underline">
-              配置 API Key
+              {t.detail.configApiKey}
             </a>
             {aiMsg && <span className="text-xs text-indigo-700">{aiMsg}</span>}
           </div>
@@ -304,10 +315,10 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
 
       {/* 公司类型（上市/非上市）切换：决定 Z 模型路径 */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-600">公司类型：</span>
+        <span className="text-sm text-gray-600">{t.detail.companyTypeLabel}</span>
         {([
-          { k: false, label: LISTED_LABELS.unlisted },
-          { k: true, label: LISTED_LABELS.listed },
+          { k: false, label: te.unlisted },
+          { k: true, label: te.listed },
         ] as const).map((o) => (
           <button
             key={String(o.k)}
@@ -321,14 +332,12 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
             {o.label}
           </button>
         ))}
-        <span className="text-[11px] text-gray-600">
-          上市 → 原始 Z（5 因子，X4=股权市值÷总负债）；非上市 → Z′(制造)/Z″(非制造)
-        </span>
+        <span className="text-[11px] text-gray-600">{t.detail.companyTypeHint}</span>
       </div>
 
       {/* 行业类型切换 */}
       <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-600">行业类型：</span>
+        <span className="text-sm text-gray-600">{t.detail.industryLabel}</span>
         {(["manufacturing", "service"] as Industry[]).map((v) => (
           <button
             key={v}
@@ -339,7 +348,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                 : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
             }`}
           >
-            {INDUSTRY_LABELS[v]}
+            {v === "manufacturing" ? te.manufacturing : te.service}
           </button>
         ))}
       </div>
@@ -347,12 +356,12 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       {/* 股权价值（仅上市公司显示） */}
       {listed && (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">股权价值（市值）：</span>
+          <span className="text-sm text-gray-600">{t.detail.equityLabel}</span>
           <input
             type="number"
             value={equityValue}
             onChange={(e) => setEquityValue(e.target.value)}
-            placeholder="股价 × 股本"
+            placeholder={t.detail.equityPlaceholder}
             className="px-2 py-1 border border-gray-300 rounded text-sm w-56"
           />
           <span className="text-[11px] text-amber-600">
@@ -374,16 +383,13 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       <section className="border rounded-lg p-4 bg-gray-50">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
           <div className="text-sm font-semibold text-gray-800">
-            Altman 子指标计算明细（X1–X5）
+            {t.detail.factorSectionTitle}
           </div>
           <div className="text-[11px] font-mono text-gray-600">
             {Z_FORMULA[model]}
           </div>
         </div>
-        <div className="text-[11px] text-gray-600 mb-3">
-          子指标由财报提取引擎算出（只读）；切换公司类型/行业会改变 Z 模型与计入项（非上市非制造业 Z″ 不含 X5）。
-          公式与系数严格对齐引擎（config.py）。
-        </div>
+        <div className="text-[11px] text-gray-600 mb-3">{t.detail.factorSectionHint}</div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {breakdowns.map((b: FactorBreakdown) => (
             <FactorDetailCard key={b.key} b={b} />
@@ -393,11 +399,8 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
 
       {/* 财务字段修正（抓不到时人工手填；保存后按 m6_calc 口径重算 X1–X5 与 Z） */}
       <section className="border rounded-lg p-4 bg-white">
-        <div className="text-sm font-semibold text-gray-800 mb-1">财务字段修正</div>
-        <div className="text-[11px] text-gray-600 mb-3">
-          提取不全或数字有误时，在此手填/修正底层科目。改动项保存后将重新计算 Altman 子指标与 Z，
-          并在证据表标记为「人工补录」。单位与币种一致（元）。
-        </div>
+        <div className="text-sm font-semibold text-gray-800 mb-1">{t.detail.fieldsSectionTitle}</div>
+        <div className="text-[11px] text-gray-600 mb-3">{t.detail.fieldsSectionHint}</div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {EDIT_FIELDS.map((f) => {
             const ex = fields.find((x) => x.field_key === f.key);
@@ -415,12 +418,12 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                     {f.label}
                     {isManual && (
                       <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-300">
-                        人工补录
+                        {t.fieldStatus.manual}
                       </span>
                     )}
                     {aiSug && (
                       <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-300">
-                        AI 建议 ({aiSug.confidence.toFixed(2)})
+                        {t.fieldStatus.aiSuggestion} ({aiSug.confidence.toFixed(2)})
                       </span>
                     )}
                   </span>
@@ -442,7 +445,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                     onChange={(e) =>
                       setFieldEdits((prev) => ({ ...prev, [f.key]: e.target.value }))
                     }
-                    placeholder={base ? base : "未提取，可手填或点 🤖"}
+                    placeholder={base ? base : t.detail.placeholderEmpty}
                     className={`flex-1 min-w-0 px-2 py-1 border rounded text-sm tabular-nums ${
                       aiSug ? "border-indigo-400 bg-indigo-50"
                       : edited ? "border-amber-400 bg-amber-50"
@@ -468,16 +471,16 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                           onClick={() => acceptAiSuggestion(f.key)}
                           className="text-[10px] px-2 py-0.5 rounded bg-indigo-600 text-white hover:bg-indigo-700"
                         >
-                          ✓ 采纳
+                          {t.detail.acceptBtn}
                         </button>
                         <button
                           onClick={() => dismissAiSuggestion(f.key)}
                           className="text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
                         >
-                          ✗ 忽略
+                          {t.detail.dismissBtn}
                         </button>
                         <span className="text-[10px] text-gray-400 self-center">
-                          采纳=替换为{aiSug.value.toLocaleString()} · 忽略=保留原值
+                          {t.detail.acceptDismissHint(aiSug.value)}
                         </span>
                       </div>
                     </div>
@@ -495,7 +498,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       {/* 风险覆盖 + 备注 + 保存 */}
       <div className="border rounded-lg p-3 bg-white space-y-3">
         <div>
-          <div className="text-sm font-medium text-gray-700 mb-1">最终风险评级</div>
+          <div className="text-sm font-medium text-gray-700 mb-1">{t.detail.finalRisk}</div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setRiskOverride("")}
@@ -505,7 +508,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                   : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
               }`}
             >
-              跟随计算（{ZONE_LABELS[zoneOf(liveZ, model)]}）
+              {t.detail.followCalc(zoneLabelMap[zoneOf(liveZ, model)])}
             </button>
             {(["safe", "grey", "distress"] as RiskZone[]).map((z) => (
               <button
@@ -522,19 +525,19 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                     : undefined
                 }
               >
-                {ZONE_LABELS[z]}
+                {zoneLabelMap[z]}
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <div className="text-sm font-medium text-gray-700 mb-1">人工备注</div>
+          <div className="text-sm font-medium text-gray-700 mb-1">{t.detail.noteLabel}</div>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="记录人工修正理由（如：行业判断、特殊事项）"
+            placeholder={t.detail.notePlaceholder}
             className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
           />
         </div>
@@ -545,14 +548,14 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
             disabled={saving}
             className="px-4 py-1.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? "保存中…" : "保存修改"}
+            {saving ? t.detail.saving : t.detail.save}
           </button>
           <a
             href={`/api/runs/${runId}/export`}
             download
             className="px-4 py-1.5 rounded-md border border-green-600 text-green-700 text-sm font-medium hover:bg-green-50"
           >
-            导出 Excel
+            {t.detail.exportExcel}
           </a>
           {msg && <span className="text-xs text-gray-600">{msg}</span>}
         </div>
@@ -566,11 +569,11 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       {/* 闸门 / 备注（原始计算信息） */}
       <div className="flex flex-wrap gap-6 text-xs">
         <div>
-          <span className="text-gray-600">闸门通过：</span>
+          <span className="text-gray-600">{t.detail.gatesPassedLabel}</span>
           {gatesPassed.length ? (
             gatesPassed.map((g: string) => (
               <span key={g} className="text-green-700 font-medium mr-1">
-                {g}
+                {translateGateLocal(g)}
               </span>
             ))
           ) : (
@@ -578,20 +581,20 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
           )}
         </div>
         <div>
-          <span className="text-gray-600">闸门失败：</span>
+          <span className="text-gray-600">{t.detail.gatesFailedLabel}</span>
           {gatesFailed.length ? (
             gatesFailed.map((g: string) => (
               <span key={g} className="text-red-600 font-medium mr-1">
-                {g}
+                {translateGateLocal(g)}
               </span>
             ))
           ) : (
-            <span className="text-green-700">无</span>
+            <span className="text-green-700">{t.detail.gatesNone}</span>
           )}
         </div>
       </div>
       {notes.length > 0 && (
-        <div className="text-xs text-amber-700">备注：{notes.join("； ")}</div>
+        <div className="text-xs text-amber-700">{t.detail.notesLabel}{notes.join("； ")}</div>
       )}
     </div>
   );

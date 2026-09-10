@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const TABS = [
-  { href: "/", label: "上传分析", exact: true },
-  { href: "/suppliers", label: "供应商库" },
-  { href: "/dictionary", label: "数据字典" },
-  { href: "/manual", label: "用户手册" },
-  { href: "/workflow", label: "计算工作流" },
-] as const;
+import { useT } from "@/lib/i18n";
 
 export default function NavTabs() {
   const pathname = usePathname();
+  const t = useT();
+
+  const TABS = [
+    { href: "/", label: t.nav.upload, exact: true },
+    { href: "/suppliers", label: t.nav.suppliers },
+    { href: "/dictionary", label: t.nav.dictionary },
+    { href: "/manual", label: t.nav.manual },
+    { href: "/workflow", label: t.nav.workflow },
+  ] as const;
 
   const isActive = (tab: (typeof TABS)[number]) =>
     "exact" in tab && tab.exact

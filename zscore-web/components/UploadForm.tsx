@@ -1,16 +1,18 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { INDUSTRY_LABELS, PERIOD_LABELS, GAAP_LABELS, LISTED_LABELS } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n";
 
 export default function UploadForm() {
   const router = useRouter();
+  const { lang, t } = useI18n();
+  const te = t.enums;
   const [files, setFiles] = useState<File[]>([]);
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("manufacturing");
   const [period, setPeriod] = useState("annual");
   const [gaap, setGaap] = useState("cas");
-  const [currency, setCurrency] = useState("CNY");
+  const [currency, setCurrency] = useState(lang === "en" ? "USD" : "CNY");
   const [listed, setListed] = useState(false);
   const [equityValue, setEquityValue] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,7 +38,7 @@ export default function UploadForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (files.length === 0) {
-      setErr("请先选择财报文件（PDF / PPTX；多张报表可一次选多张 PDF 自动合并）");
+      setErr(t.upload.errNoFile);
       return;
     }
     setLoading(true);
@@ -58,9 +60,9 @@ export default function UploadForm() {
     if (data.ok) {
       router.push(`/runs/${data.runId}`);
     } else if (data.error === "OCR_UNAVAILABLE") {
-      setErr("该财报为扫描件，需配置 GLM_API_KEY 启用 GLM-4V-Flash OCR 才能解析。");
+      setErr(t.upload.errOcrUnavailable);
     } else {
-      setErr(data.message || data.error || "分析失败");
+      setErr(data.message || data.error || t.upload.errGeneric);
     }
   }
 
@@ -70,7 +72,7 @@ export default function UploadForm() {
   return (
     <form onSubmit={submit} className="space-y-3 bg-white border rounded-xl p-5 shadow-sm">
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">财报文件（PDF / PPTX）*</label>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.fileLabel}</label>
         <input
           type="file"
           multiple
@@ -88,7 +90,7 @@ export default function UploadForm() {
                   onClick={() => removeFile(i)}
                   className="ml-2 text-red-500 hover:text-red-700 shrink-0"
                 >
-                  移除
+                  {t.upload.remove}
                 </button>
               </li>
             ))}
@@ -96,28 +98,28 @@ export default function UploadForm() {
         )}
         {files.length > 1 && (
           <div className="text-[11px] text-blue-600 mt-1">
-            已选 {files.length} 个文件，将自动合并为单份报表后提取（建议均为 PDF；PPTX 请单独上传）。
+            {t.upload.fileHint.replace("{n}", String(files.length))}
           </div>
         )}
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">供应商名称</label>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.nameLabel}</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="留空则取文件名"
+          placeholder={t.upload.namePlaceholder}
           className={selectCls}
         />
       </div>
 
       {/* 是否上市：决定 Z 模型（上市→原始 Altman Z，X4 用股权市值） */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">公司类型 *</label>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.companyType}</label>
         <div className="flex gap-2">
           {([
-            { k: "unlisted", label: LISTED_LABELS.unlisted },
-            { k: "listed", label: LISTED_LABELS.listed },
+            { k: "unlisted", label: te.unlisted },
+            { k: "listed", label: te.listed },
           ] as const).map((o) => (
             <button
               key={o.k}
@@ -133,58 +135,57 @@ export default function UploadForm() {
             </button>
           ))}
         </div>
-        <div className="text-[11px] text-gray-600 mt-1">
-          上市公司 → 原始 Altman Z（5 因子，X4=股权市值÷总负债，阈值 2.675/1.81）；
-          非上市公司 → Z′(制造)/Z″(非制造)，X4=账面权益÷总负债。
-        </div>
+        <div className="text-[11px] text-gray-600 mt-1">{t.upload.companyTypeHint}</div>
       </div>
 
       {/* 股权价值（仅上市公司显示） */}
       {listed && (
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            股权价值（市值）*
+            {t.upload.equityValueLabel}
           </label>
           <input
             type="number"
             value={equityValue}
             onChange={(e) => setEquityValue(e.target.value)}
-            placeholder="股价 × 股本（或最近融资估值），单位与币种一致"
+            placeholder={t.upload.equityValuePlaceholder}
             className={selectCls}
           />
-          <div className="text-[11px] text-amber-600 mt-1">
-            原始 Z 的 X4 分子；缺失时系统会回退账面权益近似并标注。
-          </div>
+          <div className="text-[11px] text-amber-600 mt-1">{t.upload.equityValueHint}</div>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">行业类型 *</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.industry}</label>
           <select value={industry} onChange={(e) => setIndustry(e.target.value)} className={selectCls}>
-            {Object.entries(INDUSTRY_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
+            <option value="manufacturing">{te.manufacturing}</option>
+            <option value="service">{te.service}</option>
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">报告期 *</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.period}</label>
           <select value={period} onChange={(e) => setPeriod(e.target.value)} className={selectCls}>
-            {Object.entries(PERIOD_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
+            <option value="annual">{te.annual}</option>
+            <option value="semi">{te.semi}</option>
+            <option value="q1">{te.q1}</option>
+            <option value="q2">{te.q2}</option>
+            <option value="q3">{te.q3}</option>
+            <option value="q4">{te.q4}</option>
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">会计准则 *</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.gaap}</label>
           <select value={gaap} onChange={(e) => setGaap(e.target.value)} className={selectCls}>
-            {Object.entries(GAAP_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
+            <option value="cas">{te.cas}</option>
+            <option value="ifrs">{te.ifrs}</option>
+            <option value="tw_gaap">{te.twGaap}</option>
+            <option value="hk_gaap">{te.hkGaap}</option>
+            <option value="other">{te.other}</option>
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">币种</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.currency}</label>
           <input value={currency} onChange={(e) => setCurrency(e.target.value)} className={selectCls} />
         </div>
       </div>
@@ -200,11 +201,9 @@ export default function UploadForm() {
         disabled={loading}
         className="w-full bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
       >
-        {loading ? "解析与计算中…" : "上传并分析"}
+        {loading ? t.upload.submitting : t.upload.submit}
       </button>
-      <p className="text-[11px] text-gray-600">
-        提示：公司类型与行业均由人工确认，系统不自动猜测模型。支持 PDF 与 PPTX；多张分表（如合并资产负债表+利润表+现金流量表）可一次选多张 PDF 自动合并；电子文本直接解析，扫描件需 GLM_API_KEY。
-      </p>
+      <p className="text-[11px] text-gray-600">{t.upload.note}</p>
     </form>
   );
 }

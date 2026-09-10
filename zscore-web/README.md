@@ -1,7 +1,12 @@
 # Z-Score 供应商风险分析平台 — 用户手册 v2.0
 
-> 版本：v2.0 | 更新日期：2026-08-19
+> **Language / 语言：** [中文](#) · [English](./README.en.md)
+>
+> 版本：v2.0 | 更新日期：2026-09-10
 > 适用范围：`zscore-web` Web 应用（Next.js 16 + Python 引擎）
+
+> **界面语言切换 / UI Language Switch：** 系统右上角下拉支持中/英双语。偏好持久化到 localStorage + cookie，刷新保留。
+> Switch between Chinese and English via the dropdown in the top-right of the web UI. Choice persists across reloads (localStorage + cookie).
 
 基于 Altman Z-Score 模型的供应商财务风险分析系统，提供 **财报上传 → 自动解析 → Z 值计算 → 可视化 → 字典自审 → 多供应商对比** 的完整闭环。
 
@@ -239,7 +244,9 @@ zscore-web/
 │   ├── engine.ts                # Python 子进程调用
 │   ├── types.ts                 # TypeScript 类型
 │   ├── constants.ts             # Z 系数与阈值常量
-│   └── zscore.ts                # Z 值重算逻辑
+│   ├── zscore.ts                # Z 值重算逻辑
+│   ├── messages/                # i18n：zh.ts / en.ts / index.ts / types.ts
+│   └── i18n.tsx                 # React Context + useT() hook + 持久化
 ├── types/                       # node:sqlite 类型补丁
 ├── data/                        # zscore.db（运行时生成）
 └── uploads/                     # 上传的文件（运行时生成）
@@ -269,3 +276,4 @@ zscore_pipeline/
 - **图片型 PDF 非确定性**：GLM-4V-Flash 对扫描件 / 图片型 PDF 的 OCR 结果可能因序号列干扰而产生非确定性，系统已通过序号防误抓机制缓解，极端情况下建议人工手填修正。
 - 同源不同期财报按「同名供应商 + 多 run」归档，不做跨期自动对比计算（需手动进入对比视图）。
 - 数据纯本地，无鉴权、无多用户隔离，仅限本机 / 内网使用。
+- **界面语言切换**：右上角下拉支持中/英双语（核心 UI 字符串：nav、页面标题、主要按钮、Z 风险区、闸门标签、关键状态提示；技术报告、详情页正文段落、加载提示等仍保留中文）。偏好持久化到 localStorage + cookie。技术细节详见 `lib/i18n.tsx` 与 `lib/messages/`。

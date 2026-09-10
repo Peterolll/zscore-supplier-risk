@@ -1,6 +1,7 @@
 "use client";
 import type { ZModel, RiskZone } from "@/lib/types";
-import { Z_THRESHOLDS, ZONE_COLORS, ZONE_LABELS } from "@/lib/constants";
+import { Z_THRESHOLDS, ZONE_COLORS } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n";
 
 const MIN = -2;
 const MAX = 10;
@@ -28,6 +29,7 @@ export default function ZGauge({
   model: ZModel;
   zone: RiskZone;
 }) {
+  const { t } = useI18n();
   const hasZ = z != null;
   const val = z ?? 0;
   const thr = Z_THRESHOLDS[model];
@@ -41,6 +43,13 @@ export default function ZGauge({
   const [gx1, gy1] = pt(greyT, 80 + 9);
   const [sx0, sy0] = pt(safeT, 80 - 9);
   const [sx1, sy1] = pt(safeT, 80 + 9);
+
+  const zoneLabel: Record<RiskZone, string> = {
+    safe: t.zones.safe,
+    grey: t.zones.grey,
+    distress: t.zones.distress,
+    unknown: t.zones.unknown,
+  };
 
   return (
     <div className="flex flex-col items-center">
@@ -59,7 +68,7 @@ export default function ZGauge({
           {hasZ ? val.toFixed(2) : "—"}
         </text>
         <text x={100} y={108} textAnchor="middle" fontSize={11} fill="#4b5563">
-          {model} · {ZONE_LABELS[zone]}
+          {model} · {zoneLabel[zone]}
         </text>
       </svg>
       <div className="text-xs text-gray-600 -mt-1">

@@ -5,9 +5,11 @@ import Link from "next/link";
 import RiskBadge from "./RiskBadge";
 import ConfirmDialog from "./ConfirmDialog";
 import { ZONE_COLORS } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n";
 import type { SupplierSummary } from "@/lib/types";
 
 export default function SuppliersTable({ suppliers }: { suppliers: SupplierSummary[] }) {
+  const { t } = useI18n();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<{ ids: string[]; name?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,23 +62,21 @@ export default function SuppliersTable({ suppliers }: { suppliers: SupplierSumma
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-600">
-          已选 {sel.size} 项（至少选 2 项可对比）
-        </span>
+        <span className="text-xs text-gray-600">{t.suppliersTable.selected(sel.size)}</span>
         <div className="flex gap-2">
           <button
             onClick={askDeleteMany}
             disabled={sel.size === 0}
             className="text-sm bg-red-600 text-white px-3 py-1.5 rounded-md disabled:opacity-40 hover:bg-red-700"
           >
-            批量删除{sel.size > 0 ? `(${sel.size})` : ""}
+            {t.suppliersTable.batchDelete(sel.size)}
           </button>
           <button
             onClick={compare}
             disabled={sel.size < 2}
             className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md disabled:opacity-40 hover:bg-blue-700"
           >
-            对比所选
+            {t.suppliersTable.compareSelected}
           </button>
         </div>
       </div>
@@ -86,13 +86,13 @@ export default function SuppliersTable({ suppliers }: { suppliers: SupplierSumma
           <thead className="bg-gray-50 text-gray-600 text-xs">
             <tr>
               <th className="p-2 w-8"></th>
-              <th className="text-left p-2">供应商</th>
-              <th className="text-left p-2">行业/准则</th>
-              <th className="text-left p-2">模型</th>
-              <th className="text-right p-2">Z-Score</th>
-              <th className="text-left p-2">风险</th>
-              <th className="text-left p-2">方式</th>
-              <th className="text-right p-2 w-16">操作</th>
+              <th className="text-left p-2">{t.suppliersTable.columns.supplier}</th>
+              <th className="text-left p-2">{t.suppliersTable.columns.industryGaap}</th>
+              <th className="text-left p-2">{t.suppliersTable.columns.model}</th>
+              <th className="text-right p-2">{t.suppliersTable.columns.zScore}</th>
+              <th className="text-left p-2">{t.suppliersTable.columns.risk}</th>
+              <th className="text-left p-2">{t.suppliersTable.columns.method}</th>
+              <th className="text-right p-2 w-16">{t.suppliersTable.columns.action}</th>
             </tr>
           </thead>
           <tbody>
@@ -129,7 +129,7 @@ export default function SuppliersTable({ suppliers }: { suppliers: SupplierSumma
                     onClick={() => askDeleteOne(s.id, s.name)}
                     className="text-xs text-red-600 hover:underline"
                   >
-                    删除
+                    {t.suppliersTable.delete}
                   </button>
                 </td>
               </tr>
@@ -140,15 +140,15 @@ export default function SuppliersTable({ suppliers }: { suppliers: SupplierSumma
 
       <ConfirmDialog
         open={confirm != null}
-        title={confirm && confirm.ids.length > 1 ? "批量删除供应商" : "删除供应商"}
+        title={confirm && confirm.ids.length > 1 ? t.confirm.batchTitle : t.confirm.oneTitle}
         message={
           confirm
             ? confirm.ids.length > 1
-              ? `确认删除选中的 ${confirm.ids.length} 个供应商？其全部历史分析记录（含因子与财务字段）将一并清除，且不可恢复。`
-              : `确认删除供应商「${confirm.name ?? ""}」？其全部历史分析记录将一并清除，且不可恢复。`
+              ? t.confirm.batchMsg(confirm.ids.length)
+              : t.confirm.oneMsg(confirm.name ?? "")
             : ""
         }
-        confirmText={busy ? "删除中…" : "确认删除"}
+        confirmText={busy ? t.confirm.busy : t.confirm.confirm}
         onConfirm={doDelete}
         onCancel={() => !busy && setConfirm(null)}
       />
