@@ -13,11 +13,20 @@
 
 ```
 docs/
-├── README.md      # 本文件 · this index
-├── design/        # 设计与评审文档 · design & review documents
-├── reports/       # 验证 / 修复 / 审查报告 · verification, fix & review reports
-└── samples/       # 财报版式样本（脱敏）· statement layout samples (redacted)
+├── README.md           # 本文件 · this index
+├── 新手安装指南.md      # 零基础安装教程 · beginner install guide
+├── design/             # 设计与评审文档 · design & review documents
+├── reports/            # 验证 / 修复 / 审查报告 · verification, fix & review reports
+└── samples/            # 财报版式样本（脱敏）· statement layout samples (redacted)
 ```
+
+---
+
+## 零、上手教程 · Getting Started
+
+| 文档 | 说明 |
+|------|------|
+| [`新手安装指南.md`](./新手安装指南.md) | **零基础安装教程**。从「怎么打开终端」开始，逐屏复制粘贴：检查环境 → 下载项目（Git 克隆 / ZIP 两种方式）→ 装依赖 → 启动 → 常见报错排查。完全没用过终端就先看这个。 |
 
 ---
 
@@ -85,11 +94,12 @@ docs/
 首次了解本项目，推荐按以下顺序：
 
 1. **[`../README.md`](../README.md)** — 项目是什么、怎么装、怎么跑
-2. **[`design/供应商Z-Score自动化_PRD.md`](./design/供应商Z-Score自动化_PRD.md)** — 功能边界与验收标准
-3. **[`design/供应商Z-Score自动化_方案设计v2.md`](./design/供应商Z-Score自动化_方案设计v2.md)** — 技术实现方案
-4. **[`design/供应商Z-Score自动化_计算工作流图.html`](./design/供应商Z-Score自动化_计算工作流图.html)** — 端到端流程可视化
-5. **[`reports/测试5_税前利润识别失败_根因与修复报告.md`](./reports/测试5_税前利润识别失败_根因与修复报告.md)** — 真实缺陷的排查与修复范例
-6. **[`../zscore-web/README.md`](../zscore-web/README.md)** — 上手使用
+2. **[`新手安装指南.md`](./新手安装指南.md)** — 没用过终端？照着这个一步步做
+3. **[`design/供应商Z-Score自动化_PRD.md`](./design/供应商Z-Score自动化_PRD.md)** — 功能边界与验收标准
+4. **[`design/供应商Z-Score自动化_方案设计v2.md`](./design/供应商Z-Score自动化_方案设计v2.md)** — 技术实现方案
+5. **[`design/供应商Z-Score自动化_计算工作流图.html`](./design/供应商Z-Score自动化_计算工作流图.html)** — 端到端流程可视化
+6. **[`reports/测试5_税前利润识别失败_根因与修复报告.md`](./reports/测试5_税前利润识别失败_根因与修复报告.md)** — 真实缺陷的排查与修复范例
+7. **[`../zscore-web/README.md`](../zscore-web/README.md)** — 上手使用
 
 ---
 
@@ -103,11 +113,18 @@ Back to project home → [`../README.md`](../README.md) · [中文](../README.md
 
 ```
 docs/
-├── README.md      # this index
-├── design/        # design & review documents
-├── reports/       # verification, fix & review reports
-└── samples/       # statement layout samples (redacted)
+├── README.md          # this index
+├── 新手安装指南.md     # beginner install guide (Chinese)
+├── design/            # design & review documents
+├── reports/           # verification, fix & review reports
+└── samples/           # statement layout samples (redacted)
 ```
+
+#### 0. Getting Started
+
+| Document | Language | Description |
+|----------|----------|-------------|
+| [`新手安装指南.md`](./新手安装指南.md) | ZH | **Beginner install guide.** Starts from "how to open Terminal", then copy-paste steps: check environment → get the project (git clone / ZIP) → install dependencies → launch → troubleshooting. Read this first if you have never used a terminal. |
 
 #### 1. Design & Review — [`design/`](./design)
 
@@ -153,8 +170,9 @@ docs/
 #### Suggested Reading Order
 
 1. [`../README.en.md`](../README.en.md) — what it is, how to install, how to run
-2. [`design/供应商Z-Score自动化_PRD.md`](./design/供应商Z-Score自动化_PRD.md) — scope and acceptance criteria
-3. [`design/供应商Z-Score自动化_方案设计v2.md`](./design/供应商Z-Score自动化_方案设计v2.md) — technical design
-4. [`design/供应商Z-Score自动化_计算工作流图.html`](./design/供应商Z-Score自动化_计算工作流图.html) — end-to-end flow
-5. [`reports/测试5_税前利润识别失败_根因与修复报告.md`](./reports/测试5_税前利润识别失败_根因与修复报告.md) — a real debugging case study
-6. [`../zscore-web/README.en.md`](../zscore-web/README.en.md) — getting hands-on
+2. [`新手安装指南.md`](./新手安装指南.md) — new to the terminal? follow this step by step (Chinese)
+3. [`design/供应商Z-Score自动化_PRD.md`](./design/供应商Z-Score自动化_PRD.md) — scope and acceptance criteria
+4. [`design/供应商Z-Score自动化_方案设计v2.md`](./design/供应商Z-Score自动化_方案设计v2.md) — technical design
+5. [`design/供应商Z-Score自动化_计算工作流图.html`](./design/供应商Z-Score自动化_计算工作流图.html) — end-to-end flow
+6. [`reports/测试5_税前利润识别失败_根因与修复报告.md`](./reports/测试5_税前利润识别失败_根因与修复报告.md) — a real debugging case study
+7. [`../zscore-web/README.en.md`](../zscore-web/README.en.md) — getting hands-on

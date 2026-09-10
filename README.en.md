@@ -74,6 +74,12 @@ Supported model variants:
 
 ## Download & Install
 
+> **Never used a terminal before?** See the **[Beginner Install Guide](./docs/新手安装指南.md)** (in Chinese) —
+> a step-by-step copy-paste walkthrough starting from "how to open Terminal", with troubleshooting.
+>
+> **The two options below differ only in how you get the folder onto your machine.**
+> Once you have the folder, the startup steps are identical.
+
 ### Option 1: Git Clone (recommended — easy to keep updated)
 
 ```bash
@@ -101,6 +107,7 @@ All design documents, review notes, and verification reports are archived under 
 
 | Category | Directory | Contents |
 |----------|-----------|----------|
+| Getting started | [`docs/新手安装指南.md`](./docs/新手安装指南.md) | **Beginner install guide** (Chinese): open Terminal → download → install deps → launch → troubleshoot |
 | Design & review | [`docs/design/`](./docs/design) | PRD, solution design, design review, statement sample analysis, workflow diagram |
 | Reports & post-mortems | [`docs/reports/`](./docs/reports) | End-to-end verification report, defect root-cause & fix report |
 | Samples & assets | [`docs/samples/`](./docs/samples) | Financial-statement layout sample screenshots (redacted) |
@@ -187,7 +194,8 @@ zscore-supplier-risk/
 │   └── samples/               #   Statement layout samples (redacted)
 │
 ├── scripts/
-│   └── push-to-github.sh      # GitHub push helper script
+│   ├── push-to-github.sh      # GitHub push helper script
+│   └── check-docs-links.py    # Docs link & anchor checker
 │
 ├── zscore-web/                # Next.js 16 web application
 │   ├── app/                   #   Pages and API routes
@@ -213,6 +221,7 @@ zscore-supplier-risk/
 
 | Document | Language | Description |
 |----------|----------|-------------|
+| [`docs/新手安装指南.md`](./docs/新手安装指南.md) | ZH | **Beginner install guide** (start here if new to the terminal) |
 | [`docs/README.md`](./docs/README.md) | ZH | **Master documentation index** (start here) |
 | [`zscore-web/README.md`](./zscore-web/README.md) | ZH | User manual v2.0: features, architecture, workflows |
 | [`zscore-web/README.en.md`](./zscore-web/README.en.md) | EN | User manual (English) |

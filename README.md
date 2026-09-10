@@ -74,6 +74,11 @@
 
 ## 下载与安装
 
+> **完全没用过终端？** 先看 **[新手安装指南](./docs/新手安装指南.md)** —— 从「怎么打开终端」开始，
+> 一步一步复制粘贴即可，含常见报错排查。
+>
+> **两种方式的区别只有「怎么把文件夹弄到电脑上」**；文件夹到手之后，启动步骤完全相同。
+
 ### 方式一：Git 克隆（推荐，便于后续更新）
 
 ```bash
@@ -101,6 +106,7 @@ git pull
 
 | 分类 | 目录 | 内容 |
 |------|------|------|
+| 上手教程 | [`docs/新手安装指南.md`](./docs/新手安装指南.md) | **零基础安装教程**：打开终端 → 下载 → 装依赖 → 启动 → 排错 |
 | 设计与评审 | [`docs/design/`](./docs/design) | PRD、方案设计、方案评审、财报样本分析、计算工作流图 |
 | 报告与复盘 | [`docs/reports/`](./docs/reports) | 二次校验端到端验证报告、缺陷根因与修复报告 |
 | 样本与素材 | [`docs/samples/`](./docs/samples) | 财报版式样本截图（脱敏） |
@@ -187,7 +193,8 @@ zscore-supplier-risk/
 │   └── samples/               #   财报版式样本截图（脱敏）
 │
 ├── scripts/
-│   └── push-to-github.sh      # GitHub 推送辅助脚本
+│   ├── push-to-github.sh      # GitHub 推送辅助脚本
+│   └── check-docs-links.py    # 文档链接与锚点校验
 │
 ├── zscore-web/                # Next.js 16 Web 应用
 │   ├── app/                   #   页面与 API 路由
@@ -213,11 +220,12 @@ zscore-supplier-risk/
 
 | 文档 | 语言 | 说明 |
 |------|------|------|
+| [`docs/新手安装指南.md`](./docs/新手安装指南.md) | 中 | **零基础安装教程**（没用过终端就先看这个） |
 | [`docs/README.md`](./docs/README.md) | 中 | **文档总索引**（从这里开始） |
 | [`zscore-web/README.md`](./zscore-web/README.md) | 中 | 用户手册 v2.0：功能总览、架构、使用流程 |
 | [`zscore-web/README.en.md`](./zscore-web/README.en.md) | EN | User Manual (English) |
-| [`docs/design/供应商Z-Score自动化_PRD.md`](./docs/design/) | 中 | 产品需求文档 |
-| [`docs/design/供应商Z-Score自动化_方案设计v2.md`](./docs/design/) | 中 | 技术方案设计 |
+| [`docs/design/供应商Z-Score自动化_PRD.md`](./docs/design/供应商Z-Score自动化_PRD.md) | 中 | 产品需求文档 |
+| [`docs/design/供应商Z-Score自动化_方案设计v2.md`](./docs/design/供应商Z-Score自动化_方案设计v2.md) | 中 | 技术方案设计 |
 | [`zscore-web/docs/AI_ASSIST_PRD.md`](./zscore-web/docs/AI_ASSIST_PRD.md) | 中 | AI 辅助分析功能 PRD |
 
 > 完整清单见 [`docs/README.md`](./docs/README.md)。
