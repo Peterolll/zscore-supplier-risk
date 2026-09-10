@@ -68,7 +68,7 @@
 
 ## 先检查：你的电脑装齐了没有
 
-打开 PowerShell，**逐行**复制粘贴下面 3 条命令（每粘贴一条按一次回车）：
+打开 PowerShell，**逐行**复制粘贴下面 4 条命令（每粘贴一条按一次回车）：
 
 ```powershell
 node -v
@@ -82,22 +82,57 @@ npm -v
 python --version
 ```
 
+```powershell
+git --version
+```
+
 **期望看到类似这样的输出**（版本号不用完全一样）：
 
 ```
 v20.18.0
 10.8.2
 Python 3.12.4
+git version 2.47.0.windows.2
 ```
 
-对照下面的情况处理：
+### 🟥 如果四条**全部**报「无法将…识别为 cmdlet」
+
+**这不是软件坏了，是这台电脑还没装过任何开发环境** —— 全新 Windows 的初始状态就是这样，
+四条都红是**正常现象**，照着下面的清单装一遍就好。
+
+> ⚠️ **另一种可能**：其实你已经装过了，只是**装完没有关掉 PowerShell 重开**。
+> 新装的软件不会自动出现在已打开的窗口里。**先关掉窗口、重新打开 PowerShell 再试一次**，
+> 如果还是四条全红，那就是真的没装。
+
+### 📦 全新电脑的最小安装清单（3 个，按顺序装）
+
+| # | 装什么 | 必需？ | 去哪下 | 关键动作 |
+|---|---|---|---|---|
+| 1 | **Node.js** | ✅ 必需 | <https://nodejs.org/zh-cn> | 选 **LTS** 版 `.msi` → 双击一路「下一步」 |
+| 2 | **Python** | ✅ 必需 | 见下方[安装 Python](#安装-python重点容易装错) | ⚠️ **必须勾选 `Add python.exe to PATH`** |
+| 3 | **Git** | ⭕ 可选 | <https://git-scm.com/download/win> | 只有用「方式一 Git 克隆」才需要；用「方式二 下载 ZIP」可以不装 |
+
+**每装完一个，都要关掉并重新打开 PowerShell**，再继续装下一个。
+
+> 💡 如果你的电脑是 Windows 10 1809 以上，也可以用一个命令装（在 PowerShell 里执行）：
+>
+> ```powershell
+> winget install OpenJS.NodeJS.LTS ; winget install Python.Python.3.12
+> ```
+>
+> `winget` 是 Windows 自带的软件安装器。如果提示「winget 不是内部或外部命令」，
+> 说明你的系统没有它，**请老实用上表的官网下载方式**。
+
+### 逐条对照
 
 | 结果 | 说明 | 怎么办 |
 |---|---|---|
-| 三条都有版本号 | 环境齐了 | 直接跳到[方式一](#方式一git-克隆推荐)或[方式二](#方式二下载-zip) |
-| `node` 报 `无法将...识别为 cmdlet` | 没装 Node.js | 去 <https://nodejs.org/zh-cn> 下载 **LTS** 版 `.msi`，双击一路「下一步」，**装完关掉 PowerShell 重新打开** |
-| `python` 报 `无法将...识别为 cmdlet` | 没装 Python | 见下方【安装 Python】 |
-| 输入 `python` 后**自动弹出微软应用商店** | 这是 Windows 的「假 Python」存根 | 见下方【安装 Python】 |
+| 四条都有版本号 | 环境齐了 | 直接跳到[方式一](#方式一git-克隆推荐)或[方式二](#方式二下载-zip) |
+| `node` / `npm` 报 `无法将...识别为 cmdlet` | 没装 Node.js | 上表第 1 项 |
+| `python` 报 `无法将...识别为 cmdlet` | 没装 Python | 上表第 2 项 |
+| `git` 报 `无法将...识别为 cmdlet` | 没装 Git（**不影响**下载 ZIP 方式） | 上表第 3 项；只用 ZIP 方式的话可以忽略 |
+| **明明装过了，还是报错** | 装完没重开 PowerShell | 关掉窗口重新打开；仍不行就重启电脑 |
+| 输入 `python` 后**自动弹出微软应用商店** | 这是 Windows 的「假 Python」存根 | 见下方[安装 Python](#安装-python重点容易装错) |
 | `python --version` 显示的版本低于 3.9 | 版本太老 | 建议重装 3.10 以上版本 |
 
 ### 安装 Python（重点，容易装错）
