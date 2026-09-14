@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-rem ^ 切到 UTF-8 代码页。本文件是 UTF-8 编码，不切码页的话中文提示会变乱码。
+rem 这行 chcp 切到 UTF-8 码页：本文件是 UTF-8 编码，不切码页的话中文提示会变乱码。
 
 rem ===============================================================
 rem  Z-Score 供应商信用评估系统 —— 启动脚本（命令提示符 / cmd 版）
@@ -21,9 +21,9 @@ setlocal enabledelayedexpansion
 set "PORT=3000"
 set "URL=http://localhost:%PORT%"
 
-rem %~dp0 = 本文件所在目录（末尾自带反斜杠），即仓库根
+rem %~dp0 = 本文件所在目录（cmd 保证末尾带反斜杠），即仓库根 → 去掉末尾反斜杠
 set "REPO_DIR=%~dp0"
-if "!REPO_DIR:~-1!"=="\" set "REPO_DIR=!REPO_DIR:~0,-1!"
+set "REPO_DIR=%REPO_DIR:~0,-1%"
 set "WEB_DIR=!REPO_DIR!\zscore-web"
 set "NEXT_ENTRY=!WEB_DIR!\node_modules\next\dist\bin\next"
 
