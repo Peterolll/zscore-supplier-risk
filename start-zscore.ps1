@@ -20,9 +20,13 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 # $PSScriptRoot = 本脚本所在目录 = 仓库根目录；web 工程在其下的 zscore-web\
 $RepoDir = $PSScriptRoot
 $WebDir  = Join-Path $RepoDir "zscore-web"
-$LogFile = Join-Path $env:TEMP "zscore-dev.log"
+# 日志写进 zscore-web\，与 cmd 版启动器保持一致：出问题时只要把
+# zscore-web\dev-server.log 发出来，支持方就能定位（别再改成 %TEMP%）
+$LogFile = Join-Path $WebDir "dev-server.log"
+$ErrFile = Join-Path $WebDir "dev-server.err.log"
 $Port    = 3000
 $Url     = "http://localhost:$Port"
+$WaitSeconds = 150
 
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Cyan
@@ -64,9 +68,30 @@ if ($null -ne $nodeCmd) { $NodeExe = $nodeCmd.Source }
 
 if ($null -eq $NodeExe) {
     Write-Host "[错误] 未检测到 Node.js。" -ForegroundColor Red
-    Write-Host "       请先安装 Node.js 18 以上版本（推荐 20 LTS）：" -ForegroundColor Red
+    Write-Host "       本项目前端是 Next.js 16，要求 Node.js 20.9 或更新（推荐 20 LTS）：" -ForegroundColor Red
     Write-Host "       https://nodejs.org/zh-cn/download" -ForegroundColor Red
     Write-Host "       安装后请关闭并重新打开 PowerShell，再运行本脚本。" -ForegroundColor Red
+    exit 1
+}
+
+# 版本也要够新：Next.js 16 要求 Node.js >= 20.9，Node.js 18 已不再支持。
+# 旧版本 Node 会让 dev server 打一行错误就退出，用户看到的却是「超时」，
+# 所以在这里就拦下来，直接说清楚要装什么。
+$NodeVerRaw = (& $NodeExe -p "process.versions.node" 2>$null | Select-Object -First 1)
+$NodeVerOk  = $false
+if ($NodeVerRaw) {
+    $parts = $NodeVerRaw.Trim().Split(".")
+    $maj = 0; $min = 0
+    [void][int]::TryParse($parts[0], [ref]$maj)
+    if ($parts.Length -gt 1) { [void][int]::TryParse($parts[1], [ref]$min) }
+    if ($maj -gt 20 -or ($maj -eq 20 -and $min -ge 9)) { $NodeVerOk = $true }
+}
+if (-not $NodeVerOk) {
+    Write-Host "[错误] 当前 Node.js 版本过低，本项目跑不起来。" -ForegroundColor Red
+    Write-Host "       Next.js 16 要求 Node.js 20.9 或更新。" -ForegroundColor Red
+    Write-Host "       本机检测到的版本： $NodeVerRaw" -ForegroundColor Yellow
+    Write-Host "       请安装 Node.js 20 LTS 或更新版本，关闭并重新打开 PowerShell 后再运行。" -ForegroundColor Red
+    Write-Host "       https://nodejs.org/zh-cn/download" -ForegroundColor Red
     exit 1
 }
 
@@ -83,7 +108,7 @@ if (-not (Test-Path $NextEntry)) {
         Pop-Location
         Write-Host ""
         Write-Host "[错误] 依赖安装失败，请检查：" -ForegroundColor Red
-        Write-Host "       1) Node.js 版本：node -v（需 18 以上）" -ForegroundColor Red
+        Write-Host "       1) Node.js 版本：node -v（需 20.9 以上）" -ForegroundColor Red
         Write-Host "       2) 网络是否可访问 npm 源；可换国内镜像后重试：" -ForegroundColor Red
         Write-Host "          npm config set registry https://registry.npmmirror.com" -ForegroundColor Red
         exit 1
@@ -126,7 +151,6 @@ if (Test-Path $VenvPy) {
 Write-Host "[启动] 正在后台启动开发服务器..." -ForegroundColor Gray
 
 # 直接用 node 拉起 Next（跳过 npm / cmd 包装层，避免路径含空格时的引号问题）
-$ErrFile = Join-Path $env:TEMP "zscore-dev.err.log"
 foreach ($f in @($LogFile, $ErrFile)) {
     if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
 }
@@ -138,11 +162,12 @@ Start-Process -FilePath $NodeExe `
               -RedirectStandardError $ErrFile `
               -WindowStyle Hidden
 
-# ---------- 6. 等待就绪（最多 60 秒） ----------
+# ---------- 6. 等待就绪（最多 $WaitSeconds 秒）----------
+# 与 cmd 版一致用 150 秒：Next.js 16 首次编译在机械硬盘上可能远超 60 秒
 Write-Host "[等待] 正在等待服务就绪（首次启动需要编译，请稍候）..." -ForegroundColor Gray
 
 $ready = $false
-for ($i = 1; $i -le 60; $i++) {
+for ($i = 1; $i -le $WaitSeconds; $i++) {
     Start-Sleep -Seconds 1
     if (Test-PortOpen $Port) {
         $ready = $true
@@ -168,7 +193,7 @@ if ($ready) {
     exit 0
 } else {
     Write-Host ""
-    Write-Host "[超时] 60 秒内未检测到服务就绪。" -ForegroundColor Red
+    Write-Host "[超时] $WaitSeconds 秒内未检测到服务就绪。" -ForegroundColor Red
     Write-Host "       请查看日志排查问题：" -ForegroundColor Red
     Write-Host "         $LogFile" -ForegroundColor Red
     Write-Host "         $ErrFile" -ForegroundColor Red

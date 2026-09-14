@@ -40,3 +40,10 @@ venv/
 Thumbs.db
 *.log
 *.tsbuildinfo
+
+# ===== 运行时诊断产物（启动/诊断脚本生成，不入库）=====
+dev-server.log
+dev-server.err.log
+diagnose-report.txt
+diag-write-test.tmp
+zscore-write-test.tmp

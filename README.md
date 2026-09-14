@@ -124,7 +124,7 @@ git pull
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
-| **Node.js** | 22.x | 需内置 `node:sqlite`（开发验证版本 22.22.2） |
+| **Node.js** | 22.x（**最低 20.9**） | 前端为 Next.js 16，从 20.9 起步、**不支持 Node.js 18**；另需内置 `node:sqlite`（开发验证版本 22.22.2） |
 | **Python** | 3.10+ | 运行 `zscore_pipeline` 计算引擎 |
 | **Git** | 任意 | 仅「Git 克隆」方式需要 |
 
@@ -182,6 +182,12 @@ start-zscore.cmd
 > 也可以直接**双击**仓库根目录的 `start-zscore.cmd`。该脚本不依赖 PowerShell，
 > 适合不想用、或公司策略禁用了 PowerShell 的电脑。**它的提示是英文的**
 > （cmd 解析中文批处理有已知缺陷，原因见上文一键装依赖那一节）。
+>
+> 启动器会先做几项前置检查（Node 是否存在、**Node 版本是否 ≥ 20.9**、目录是否可写），
+> 每项都会给出具体处置办法，而不是干等超时。启动失败时它还会**直接把 dev server 的日志
+> 打印在同一个窗口**，日志同时落盘在 `zscore-web/dev-server.log`。
+> 看不懂报错就双击 `scripts\diagnose-windows.cmd`，它会生成一份可直接发送的诊断报告
+> （`diagnose-report.txt`，包含 Node/npm 版本、依赖、端口占用、Python 环境与完整日志）。
 
 脚本会自动定位仓库根目录、后台启动开发服务器（关闭终端不中断），并在就绪后提示访问地址：
 
@@ -269,10 +275,11 @@ zscore-supplier-risk/
 ├── scripts/
 │   ├── setup-windows.ps1      # Windows 一键装依赖（PowerShell 版）
 │   ├── setup-windows.cmd      # Windows 一键装依赖（命令提示符版）
+│   ├── diagnose-windows.cmd   # 出问题时收集诊断信息，生成可发送的报告文件
 │   ├── push-to-github.sh      # GitHub 推送辅助脚本
 │   ├── check-docs-links.py    # 文档链接与锚点校验
 │   ├── check-ps1-syntax.py    # .ps1 语法与 UTF-8 BOM 校验（无需 PowerShell）
-│   ├── check-cmd-batch.py     # .cmd/.bat 行尾、编码与标签校验（无需 Windows）
+│   ├── check-cmd-batch.py     # .cmd/.bat 行尾、编码、ASCII、标签与块结构校验（无需 Windows）
 │   └── verify_pdf_render.py   # PDF 渲染回归：pypdfium2 与 poppler 输出等价性
 │
 ├── zscore-web/                # Next.js 16 Web 应用

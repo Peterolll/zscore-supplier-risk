@@ -113,9 +113,15 @@ git version 2.47.0.windows.2
 
 | # | 装什么 | 必需？ | 去哪下 | 关键动作 |
 |---|---|---|---|---|
-| 1 | **Node.js** | ✅ 必需 | <https://nodejs.org/zh-cn> | 选 **LTS** 版 `.msi` → 双击一路「下一步」 |
+| 1 | **Node.js** | ✅ 必需 | <https://nodejs.org/zh-cn> | 选 **20 LTS 或更新**版 `.msi` → 双击一路「下一步」 |
 | 2 | **Python** | ✅ 必需 | 见下方[安装 Python](#安装-python重点容易装错) | ⚠️ **必须勾选 `Add python.exe to PATH`** |
 | 3 | **Git** | ⭕ 可选 | <https://git-scm.com/download/win> | 只有用「方式一 Git 克隆」才需要；用「方式二 下载 ZIP」可以不装 |
+
+> ⚠️ **Node.js 版本必须 20.9 或更新**。本项目前端用的是 **Next.js 16**，它从 20.9 起步，
+> **Node.js 18 及更早版本已经不支持**（装了也是启动不了）。
+> 如果你电脑上原来装过 Node.js，先用 `node -v` 看一眼版本号：
+> 显示 `v20.9.0` 以上才行；显示 `v18.x` 或更低就要去官网装个新的。
+> 官网下载页默认给的就是 LTS 版，照默认下即可。
 
 **每装完一个，都要关掉并重新打开 PowerShell**，再继续装下一个。
 
@@ -139,6 +145,7 @@ git version 2.47.0.windows.2
 | **明明装过了，还是报错** | 装完没重开 PowerShell | 关掉窗口重新打开；仍不行就重启电脑 |
 | 输入 `python` 后**自动弹出微软应用商店** | 这是 Windows 的「假 Python」存根 | 见下方[安装 Python](#安装-python重点容易装错) |
 | `python --version` 显示的版本低于 3.9 | 版本太老 | 建议重装 3.10 以上版本 |
+| **`node --version` 显示 `v18.x` 或更低** | **版本太老** —— Next.js 16 要求 **20.9 或更新**，Node.js 18 已不支持 | 去 <https://nodejs.org/zh-cn> 装 **20 LTS 或更新**版，装完关掉窗口重新打开 |
 
 ### 安装 Python（重点，容易装错）
 
@@ -212,12 +219,13 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 所以：**`start-zscore.ps1` 在 cmd 里是跑不起来的** —— 直接敲会提示「不是内部或外部命令」，
 双击它多半只会用记事本打开、或者闪一下就消失。这不是文件坏了，是两种解释器的语法本来就不通。
 
-### 两个 cmd 脚本
+### 三个 cmd 脚本
 
 | 原来的 PowerShell 脚本 | 对应的 cmd 脚本 | 作用 |
 |---|---|---|
-| `start-zscore.ps1` | **`start-zscore.cmd`** | 启动系统（自动补装前端依赖、清理残留锁文件、等就绪、自动开浏览器） |
+| `start-zscore.ps1` | **`start-zscore.cmd`** | 启动系统（检查环境、补装前端依赖、清理残留锁文件、等就绪、自动开浏览器、**失败时直接打印日志**） |
 | `scripts\setup-windows.ps1` | **`scripts\setup-windows.cmd`** | 一键装齐所有依赖（缺 Node / Python / Git 就用 winget 补装） |
+| —— | **`scripts\diagnose-windows.cmd`** | 出问题时收集诊断信息，生成一个**可直接发给支持方的报告文件** |
 
 **用法：在文件资源管理器里直接双击即可**，也可以在命令提示符里敲文件名后回车。
 
@@ -253,17 +261,23 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 | 屏幕上会看到 | 含义 | 怎么办 |
 |---|---|---|
 | `Z-Score Supplier Risk - Launcher` | 启动器已开始运行 | —— |
-| `[INFO] The service is already running, nothing to start.` | 服务本来就在跑 | 浏览器打开 <http://localhost:3000> |
+| `[INFO] Something is already listening on port 3000.` | 3000 端口已经有程序在跑 | 浏览器打开 <http://localhost:3000>；**如果打开的不是本系统**，说明是别的程序占用了这个端口，关掉它再重跑本脚本 |
+| `[ERROR] Cannot find the web folder:` | 文件不放在项目根目录 | 把 `start-zscore.cmd` 移回项目根目录 |
+| `[ERROR] Node.js was not found on this computer.` | 没装 Node.js | 装 <https://nodejs.org/en/download>，装完**关窗重开**再跑 |
+| **`[ERROR] The installed Node.js is too old for this application.`** | **Node.js 版本太老**（Next.js 16 要求 20.9 以上） | 按屏幕提示去官网装 **20 LTS 或更新**，装完关窗重开再跑 |
+| **`[ERROR] The project folder cannot be written to.`** | **从 ZIP 压缩包里直接双击运行了**（目录只读） | 关掉窗口 → 右键 ZIP → **全部解压缩** → 到解压出来的文件夹里再双击 |
 | `[INFO] Web dependencies are missing, running npm install now.` | 首次运行，正在装网页依赖 | 等 1–3 分钟，别关窗口 |
 | `[INFO] Direct download failed, retrying with a China mirror...` | 直连失败，已自动切国内镜像 | 正常，继续等 |
 | `[ERROR] npm install failed. Please check your network.` | 网页依赖装不上 | 按屏幕给出的命令手动重试 |
+| `[INFO] Removing a leftover lock file from the previous run...` | 正在清理上次异常退出的残留 | 正常，继续等 |
 | `[INFO] Waiting for the server, up to 150 seconds.` | 正在等服务就绪（首次编译慢） | 等，后面会打点 `....` |
 | **`SUCCESS - the service is running`** | **成功了** | 浏览器会自动打开 |
-| `[ERROR] The server was not ready within 150 seconds.` | 超时未就绪 | 点任务栏上 `zscore-dev` 窗口看报错 |
-| `[ERROR] Node.js was not found on this computer.` | 没装 Node.js | 装 <https://nodejs.org/>，装完**关窗重开**再跑 |
-| `[ERROR] Cannot find the web folder:` | 文件不放在项目根目录 | 把 `start-zscore.cmd` 移回项目根目录 |
-| `Live log   : the taskbar window titled "zscore-dev"` | 看运行日志的地方 | 点那个小窗口 |
-| `To stop it : close that "zscore-dev" window` | **停止服务的方法** | 关掉那个 `zscore-dev` 窗口 |
+| `[ERROR] The dev server stopped before it was ready.` | dev server 启动后自己退出了 | **下面会直接把报错内容打出来** → 截图发支持方 |
+| `[ERROR] The server was not ready within 150 seconds.` | 超时仍未就绪 | **下面会直接把日志内容打出来** → 截图发支持方 |
+| `[NOTE] The log file was never created...` | dev server 根本没启动起来 | 先双击 `scripts\setup-windows.cmd` 装依赖，再重跑 |
+| `[NOTE] The log file is empty...` | 还没输出内容，通常是在首次编译 | 等一分钟，再打开网址 |
+| `Server log : ...\zscore-web\dev-server.log` | **运行日志的位置** | 出问题就把这个文件发出去 |
+| `To stop it : close the window titled "zscore-dev"` | **停止服务的方法** | 关掉那个 `zscore-dev` 窗口 |
 | `Press any key to close this window.` | 这个窗口可以关了 | 按任意键；**服务在后台继续跑** |
 
 **装依赖脚本 `scripts\setup-windows.cmd`**
@@ -280,6 +294,42 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 | **`Environment ready, you can start the app now`** | **全部装好了** | 回项目根目录双击 `start-zscore.cmd` |
 | `Setup did NOT fully complete` | 有项目没装上 | 处理完上面标 `[ERROR]` 的项，重跑本脚本 |
 | `Press any key to close this window...` | 结束 | 按任意键 |
+
+### 启动失败怎么排查（不用再猜）
+
+**从这一版开始，启动失败时启动器会把 dev server 的日志内容直接打印在同一个窗口里** ——
+不用再去点任务栏那个 `zscore-dev` 小窗口找报错了。日志同时落盘在：
+
+```
+zscore-web\dev-server.log
+```
+
+如果屏幕上打印出来的内容你还是看不明白，**双击这个脚本**：
+
+```
+scripts\diagnose-windows.cmd
+```
+
+它**只读取、不修改**任何东西，会一次性收集：
+
+| 收集项 | 用途 |
+|---|---|
+| Windows 版本、当前目录 | 确认系统和运行位置 |
+| `node` / `npm` 的位置与版本 | 最常见的原因（版本太老、没装）就在这里 |
+| `zscore-web` 目录、`node_modules\next` 是否齐全 | 判断依赖是否装好 |
+| `.next\dev\lock` 是否有残留 | 残留会让服务偷偷换端口 |
+| 3000 / 3001 / 3002 端口占用情况 | 判断是不是端口被别的程序占了 |
+| Python `.venv` 与五个依赖的导入自检 | 判断财报分析功能能不能用 |
+| **完整的 `dev-server.log` 内容** | 真正的报错通常在这里 |
+
+跑完后它会把结果存成一个文件，屏幕会显示完整路径：
+
+| 情况 | 报告文件位置 |
+|---|---|
+| 正常情况下 | 项目根目录的 `diagnose-report.txt` |
+| 项目目录是只读的（例如从 ZIP 里直接跑） | `%TEMP%\zscore-diagnose.txt` |
+
+**把这个文件发给支持方就够了**，比截图更清楚、也更省事。
 
 ### cmd 与 PowerShell 命令对照
 
@@ -711,18 +761,23 @@ Stop-Process -Name node -Force
 | `python -m venv .venv` 报 `No module named venv` | Python 安装不完整 | 重装 Python，安装选项里确保勾选 `pip` 与 `venv` |
 | `cd : 找不到路径` | 文件夹名写错 / 不在那个位置 | 先 `dir` 看看当前有什么；确认方式一是不带 `-main`、方式二带 `-main` |
 | `git : 无法将...识别为 cmdlet` | Git 没装 | 去 <https://git-scm.com/download/win> 下载安装，装完**重开 PowerShell** |
-| `npm : 无法将...识别为 cmdlet` | Node 没装 | 去 <https://nodejs.org/zh-cn> 装 LTS 版 `.msi`，装完**重开 PowerShell** |
+| `npm : 无法将...识别为 cmdlet` | Node 没装 | 去 <https://nodejs.org/zh-cn> 装 **20 LTS 或更新**版 `.msi`，装完**重开 PowerShell** |
 | `无法加载文件 ...start-zscore.ps1，因为在此系统上禁止运行脚本` | Windows 默认的脚本执行策略 | 用完整命令 `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1`；或在当前窗口先执行 `Set-ExecutionPolicy -Scope Process Bypass` 再运行 |
 | **公司电脑禁用了 PowerShell**，加 `-ExecutionPolicy Bypass` 也照样报「禁止运行脚本」 | 组策略（域控）层面禁的，`Bypass` 覆盖不了 | 改走 cmd 路线：`start-zscore.cmd` + `scripts\setup-windows.cmd`，见 [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作) |
-| 双击 `start-zscore.ps1` 只闪一下 / 提示「不是内部或外部命令」 | `.ps1` 不是可执行文件，必须由 PowerShell 宿主来跑 | 用 `.cmd` 版：[`start-zscore.cmd`](#两个-cmd-脚本)；或按上文用完整命令调用 `.ps1` |
+| 双击 `start-zscore.ps1` 只闪一下 / 提示「不是内部或外部命令」 | `.ps1` 不是可执行文件，必须由 PowerShell 宿主来跑 | 用 `.cmd` 版：[`start-zscore.cmd`](#三个-cmd-脚本)；或按上文用完整命令调用 `.ps1` |
 | **cmd 窗口刷出一大片 `'xxx' 不是内部或外部命令`，中文还被从中间切断** | 手里是**旧版** `.cmd`（中文提示版）—— cmd 解析含中文字节的批处理会丢失字符同步、把行切断后把残片当命令执行 | **重新下载最新版项目**（新版 `.cmd` 已是纯英文提示，不再有这个问题）；或改用 `start-zscore.ps1` |
 | cmd 版的提示为什么是英文的 | 同上：中文在 `.cmd` 里没有可靠写法，`chcp 65001` 也修不了解析 | 见 [为什么 cmd 版的提示是英文的](#为什么-cmd-版的提示是英文的)，以及后面的两张提示对照表 |
 | cmd 里 `cd ~\Desktop` 报「系统找不到指定的路径」 | `~` 只是 PowerShell 的简写，cmd 不认识 | 改用 `cd /d "%USERPROFILE%\Desktop"` |
-| cmd 里中文显示成乱码 | 老版本 cmd 默认码页是 GBK | 执行 `chcp 65001`（本项目的两个 `.cmd` 脚本已自带这一步） |
+| cmd 里中文显示成乱码 | 老版本 cmd 默认码页是 GBK | 在 cmd 里执行 `chcp 65001`。**注意**：这只对「你自己敲的命令」有效；本项目交付的 `.cmd` 脚本一律用英文提示，因为 `chcp` 修不了 cmd 的**解析**问题（见 [为什么 cmd 版的提示是英文的](#为什么-cmd-版的提示是英文的)） |
+| **`[ERROR] The server was not ready within 150 seconds.`** | dev server 没能在 150 秒内起来 | 这条提示**下面会直接打印日志内容**，把它截图发支持方；或双击 `scripts\diagnose-windows.cmd` 生成报告文件。常见原因见下三行 |
+| **`[ERROR] The installed Node.js is too old for this application.`** | **Node.js 版本低于 20.9** —— Next.js 16 已不支持 Node.js 18 | 去 <https://nodejs.org/zh-cn> 装 **20 LTS 或更新**，装完**关掉窗口重新打开**再跑 |
+| **`[ERROR] The project folder cannot be written to.`** | 在 ZIP 压缩包里直接双击运行了，文件是只读的 | 关掉窗口 → 右键 ZIP → **全部解压缩** → 进解压出来的文件夹再双击 |
+| 日志里出现 `Port 3000 is in use, trying 3001` 之类的字样 | 3000 被别的程序占了，Next.js 自己挪到了 3001 | 直接用 <http://localhost:3001>；或关掉占用 3000 的程序后重跑 |
+| 启动失败但**看不懂屏幕上的报错** | —— | 双击 `scripts\diagnose-windows.cmd`，它会把 Node 版本、依赖、端口、Python 环境、完整日志一次性收成一个文件，直接发给支持方 |
 | `ModuleNotFoundError: No module named 'pdfplumber'` | Python 依赖没装成功 | 回到项目根目录，重跑 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
 | 上传财报后提示**引擎启动失败 / SPAWN_ERROR** | Python 环境不完整 | 跑[第 1 步的自检命令](#第-1-步装-python-环境约-23-分钟)；确认 `pip install` 是在**项目根目录**执行的 |
 | 只有一个 PDF 能分析，多个 PDF 一起传就报错 | 缺 `pypdf`（多文件合并用） | 重跑 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
-| 启动时提示 `端口 3000 已被占用` | 上次的服务还在跑 | 直接访问 <http://localhost:3000>；或先 `Stop-Process -Name node -Force` 再重启 |
+| 启动时提示**端口已被占用**（`Something is already listening on port 3000`） | 上次的服务还在跑 | 直接访问 <http://localhost:3000>；若打开的不是本系统，说明是别的程序占了这个端口，先 `Stop-Process -Name node -Force` 关掉再重启 |
 | `npm install` 卡住不动 | 网络访问 npm 官方源太慢 | `npm config set registry https://registry.npmmirror.com` 后重试 |
 | `pip install` 卡住不动 | 网络访问 PyPI 太慢 | 见[第 1 步](#第-1-步装-python-环境约-23-分钟)里的清华镜像配置 |
 | `Could not find a version that satisfies the requirement ... (from versions: none)` | **不是包缺失**，是 pip 索引请求超时 | 切清华镜像并加长超时：`.\.venv\Scripts\python.exe -m pip install --timeout 120 -r requirements.txt` |
@@ -774,6 +829,11 @@ scripts\setup-windows.cmd
 rem ── 每次启动 ──
 start-zscore.cmd
 rem 浏览器打开 http://localhost:3000
+
+rem ── 启动失败时：收集诊断信息（只读，不改任何东西）──
+scripts\diagnose-windows.cmd
+rem 结果在 项目根目录\diagnose-report.txt（目录只读时在 %TEMP%\zscore-diagnose.txt）
+rem 运行日志在 zscore-web\dev-server.log
 
 rem ── 关闭 ──
 taskkill /F /IM node.exe

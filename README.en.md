@@ -121,7 +121,7 @@ All design documents, review notes, and verification reports are archived under 
 
 | Dependency | Version | Notes |
 |------------|---------|-------|
-| **Node.js** | 22.x | Needs built-in `node:sqlite` (validated on 22.22.2) |
+| **Node.js** | 22.x (**20.9 minimum**) | The frontend is Next.js 16, which starts at 20.9 and **no longer supports Node.js 18**; built-in `node:sqlite` is also required (validated on 22.22.2) |
 | **Python** | 3.10+ | Runs the `zscore_pipeline` engine |
 | **Git** | any | Only needed for the "Git Clone" option |
 

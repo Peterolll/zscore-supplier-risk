@@ -23,7 +23,11 @@
      裸露的 `!`（被延迟展开吃掉）
   8. **括号只能是块分隔符**：除了 `if ... (` / `for ... do (` / `)` `) else (` 这几种
      形态，任何其它行出现 `(` 或 `)` 都报错（**`rem` 行也不例外**）——
-     块内的一个多余括号会提前闭合那个块，后面的命令会被整体误读
+     块内的一个多余括号会提前闭合那个块，后面的命令会被整体误读。
+     **例外**：双引号内的括号会被剥离后再判断，因为 cmd 不会把引号里的
+     `(` `)` 当块分隔符（例如 `node -e "process.exit(x?1:0)"` 是合法的）
+  9. **`goto` 不得写在 `(...)` 块内部**：块会被整体预解析，块内跳转行为难预测。
+     统一改成「标志位 + 块外平铺 goto」：块内只 echo，块外再判断、再跳
 
 用法：
     python3 scripts/check-cmd-batch.py                 # 校验仓库内所有 .cmd/.bat
@@ -40,7 +44,24 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOM = b"\xef\xbb\xbf"
 
-DEFAULT_TARGETS = ["start-zscore.cmd", "scripts/setup-windows.cmd"]
+# 自动发现仓库内所有 .cmd / .bat，而不是维护一份手写清单 ——
+# 手写清单必然出现「新增了脚本却忘了加进来」的漏网（本项目已有 3 个脚本）。
+# 只跳过第三方依赖与构建产物目录。
+SKIP_DIRS = {
+    "node_modules", ".venv", "venv", ".next", ".git", "out", "build", "dist",
+    "__pycache__", ".workbuddy", "uploads", "output",
+}
+
+
+def discover_targets() -> list[str]:
+    """返回仓库内全部 .cmd / .bat 的相对路径（已排序）。"""
+    found: list[str] = []
+    for root, dirs, files in os.walk(REPO_ROOT):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for name in files:
+            if name.lower().endswith((".cmd", ".bat")):
+                found.append(os.path.relpath(os.path.join(root, name), REPO_ROOT))
+    return sorted(found)
 
 # ── 正则 ──────────────────────────────────────────────────────────
 RE_LABEL_DEF = re.compile(r"^\s*:([A-Za-z_][\w]*)\s*$")
@@ -52,6 +73,11 @@ RE_ECHO = re.compile(r"^\s*@?echo(\.|,|;|:|\(|\s)?(.*)$", re.I)
 RE_BLOCK_OPEN = re.compile(r"^(?:if|for|else)\b.*\($", re.I)
 RE_BLOCK_CLOSE = re.compile(r"^\)$")
 RE_CLOSE_ELSE = re.compile(r"^\)\s*else\s*\($")
+# 单行 for 的合法形态：`for %%X in (<集合>) do <命令>`
+# 这里的括号是 for 的「集合」语法，不是块分隔符，且整行在同一行内闭合。
+RE_FOR_INLINE = re.compile(r"^\s*@?for\b.*\bin\s*\([^)]*\)\s*do\b", re.I)
+# 多行 for 块的开启行（用于规则 9 的 for 深度计算）
+RE_FOR_BLOCK_OPEN = re.compile(r"^\s*@?for\b.*\($", re.I)
 
 # 内置伪标签，不需要自己定义
 BUILTIN_LABELS = {"eof"}
@@ -61,7 +87,10 @@ def block_shape_ok(line: str) -> bool:
     """这一行是不是「括号只当块分隔符」的合法形态？"""
     s = line.strip()
     return bool(
-        RE_BLOCK_OPEN.match(s) or RE_BLOCK_CLOSE.match(s) or RE_CLOSE_ELSE.match(s)
+        RE_BLOCK_OPEN.match(s)
+        or RE_BLOCK_CLOSE.match(s)
+        or RE_CLOSE_ELSE.match(s)
+        or RE_FOR_INLINE.match(s)
     )
 
 
@@ -79,6 +108,12 @@ def check_echo(line: str, lineno: int, path: str) -> list[str]:
     # 剥掉 ^ 转义与引号内容，剩下的才是真正「裸露」的字符
     body = re.sub(r"\^.?", "", body)
     body = strip_quoted(body)
+    # 再剥掉**有意的重定向**（`>file` / `2>nul` / `>>log` / `2>&1` / `<nul`）——
+    # 那些 `>` `<` 是语法而不是误入文案的裸字符，例如
+    #     echo x>write-test.tmp 2>nul
+    # 是合法的「写个测试文件」，不该报错。剩下的 `& | < >` 才是真问题。
+    body = re.sub(r"\d*>>?\s*(?:&?\d+|nul|[^\s|&<>]+)", "", body, flags=re.I)
+    body = re.sub(r"\d*<\s*(?:&?\d+|nul|[^\s|&<>]+)", "", body, flags=re.I)
 
     problems: list[str] = []
     bad = [c for c in "&|<>" if c in body]
@@ -95,6 +130,45 @@ def check_echo(line: str, lineno: int, path: str) -> list[str]:
             f"[echo] {path}:{lineno} echo 行里有裸露的 ! —— "
             "在 setlocal enabledelayedexpansion 下会被吃掉；请写成 ^! 或改写文案"
         )
+    return problems
+
+
+def check_goto_in_block(lines: list[str], path: str) -> list[str]:
+    """规则 9：`goto` 不得出现在 `for` 块内部。
+
+    **为什么只管 for 块**：`for ... do (` 的循环体是会被反复执行的单元，
+    从循环体里 `goto` 出去（尤其是 `for /f ... in ('命令')` 那种带管道/子进程的），
+    在旧 cmd 上会产生难预测的行为；而 `if ... (` 块内 `goto` 实测完全正常
+    （本项目 setup-windows.cmd 有 8 处这样的写法，客户机上已成功跑通），
+    所以不把 `if` 块纳入硬规则，避免为了规则而改动已验证可用的代码。
+
+    正确的替代写法（标志位 + 块外平铺 goto）：
+        set "FATAL="
+        if not exist "x" set "FATAL=1"
+        if defined FATAL (
+            echo ...
+        )
+        if defined FATAL goto :fail
+    """
+    problems: list[str] = []
+    for_depth = 0
+    for i, line in enumerate(lines, 1):
+        s = line.strip()
+        if s.startswith("rem ") or s.startswith("::"):
+            continue
+        code = strip_quoted(s)
+
+        if RE_BLOCK_CLOSE.match(s):
+            for_depth = max(0, for_depth - 1)
+        elif RE_FOR_BLOCK_OPEN.match(s):
+            for_depth += 1
+
+        if for_depth > 0 and re.match(r"^@?goto\b", code, re.I):
+            problems.append(
+                f"[块内goto] {path}:{i} `goto` 写在 for (...) 循环体内部 —— "
+                "带管道的 for /f 尤其容易出事。请改成「标志位 + 块外平铺 goto」："
+                "先 set 一个变量，块内只 echo，块外用 if defined 判断后再 goto"
+            )
     return problems
 
 
@@ -170,7 +244,12 @@ def check(path: str) -> list[str]:
         stripped = line.rstrip()
         # 括号只允许作为 if / for 的块分隔符出现 —— rem 行也不例外，
         # 因为块内的一个多余 ) 会把块提前闭合，后面的命令全被误读。
-        if ("(" in stripped or ")" in stripped) and not block_shape_ok(stripped):
+        #
+        # 但**双引号内的括号不参与 cmd 的块解析**，所以必须先剥离引号内容再判断。
+        # 否则 `node -e "process.exit(a?1:0)"` 这类完全合法的命令行会被误报
+        # （引号里的 ( ) 只是 JS 语法，cmd 根本看不见它们）。
+        paren_scan = strip_quoted(stripped)
+        if ("(" in paren_scan or ")" in paren_scan) and not block_shape_ok(stripped):
             problems.append(
                 f"[括号] {path}:{i} 出现了不是块分隔符的括号 —— "
                 "一旦本行位于 if/for 的 (...) 块内，括号会提前闭合那个块，"
@@ -231,11 +310,14 @@ def check(path: str) -> list[str]:
         elif stripped == ")" and for_stack:
             for_stack.pop()
 
+    # ── 9) goto 不得写在 (...) 块内部 ──
+    problems.extend(check_goto_in_block(lines, path))
+
     return problems
 
 
 def main(argv: list[str]) -> int:
-    targets = argv[1:] or DEFAULT_TARGETS
+    targets = argv[1:] or discover_targets()
     all_problems: list[str] = []
     for t in targets:
         all_problems.extend(check(t))
