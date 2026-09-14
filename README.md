@@ -146,6 +146,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 scripts\setup-windows.cmd
 ```
 
+> `.cmd` 版的提示信息是**英文**的：`cmd.exe` 解析含中文的批处理时会字符错位
+> （把行切断、残片被当成命令执行），中文在 `.cmd` 里没有可靠写法。
+> 中文说明见 [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md) 里的提示对照表。
+
 两个脚本都会：检查并补装前置组件 → 新建 `.venv` 并装 Python 依赖（失败自动换国内镜像重试）
 → 装网页依赖 → 真跑一次 `import` 自检。**可重复运行**，已装好的会自动跳过。
 
@@ -176,7 +180,8 @@ start-zscore.cmd
 ```
 
 > 也可以直接**双击**仓库根目录的 `start-zscore.cmd`。该脚本不依赖 PowerShell，
-> 适合不想用、或公司策略禁用了 PowerShell 的电脑。
+> 适合不想用、或公司策略禁用了 PowerShell 的电脑。**它的提示是英文的**
+> （cmd 解析中文批处理有已知缺陷，原因见上文一键装依赖那一节）。
 
 脚本会自动定位仓库根目录、后台启动开发服务器（关闭终端不中断），并在就绪后提示访问地址：
 

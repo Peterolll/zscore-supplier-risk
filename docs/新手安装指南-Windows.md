@@ -223,6 +223,64 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 
 > 两个脚本都可以**重复运行**：已经装好的部分会自动跳过。
 
+> ⚠️ **这两个 `.cmd` 脚本的控制台提示是英文的 —— 这是故意的，不是没做完。** 原因见下一节。
+
+### 为什么 cmd 版的提示是英文的
+
+`cmd.exe` 解析**含中文字节**的批处理文件时会出错：它会丢失字符同步，
+**把一行从中间切断，然后把后半截当成一条命令去执行**，屏幕上就刷出一大片
+
+```
+'司策略禁用了' 不是内部或外部命令，也不是可运行的程序或批处理文件。
+```
+
+这**不是**「编码不对所以乱码」那么简单 —— 加 `chcp 65001` 只能让侥幸显示出来的文字变正常，
+**解析本身依然是坏的**（线上已在客户机实测复现）。中文在 `.cmd` 里没有可靠写法，所以本项目选择：
+
+| 文件 | 语言 | 原因 |
+|---|---|---|
+| `.cmd` 脚本 | **纯英文** | 任何 Windows 语言 / 码页下都不会解析出错 |
+| 中文步骤说明 | **就是本文档** | Markdown 渲染中文没有任何问题 |
+| `start-zscore.ps1` | **中文（完整保留）** | PowerShell 用 UTF-8 BOM 正确解码，没有这个缺陷 |
+
+所以：**能用 PowerShell 就优先用 `.ps1`**（中文提示、而且一次跑完）；
+只能用 cmd 时，照着下面两张对照表看提示即可。
+
+### cmd 版控制台提示对照表
+
+**启动脚本 `start-zscore.cmd`**
+
+| 屏幕上会看到 | 含义 | 怎么办 |
+|---|---|---|
+| `Z-Score Supplier Risk - Launcher` | 启动器已开始运行 | —— |
+| `[INFO] The service is already running, nothing to start.` | 服务本来就在跑 | 浏览器打开 <http://localhost:3000> |
+| `[INFO] Web dependencies are missing, running npm install now.` | 首次运行，正在装网页依赖 | 等 1–3 分钟，别关窗口 |
+| `[INFO] Direct download failed, retrying with a China mirror...` | 直连失败，已自动切国内镜像 | 正常，继续等 |
+| `[ERROR] npm install failed. Please check your network.` | 网页依赖装不上 | 按屏幕给出的命令手动重试 |
+| `[INFO] Waiting for the server, up to 150 seconds.` | 正在等服务就绪（首次编译慢） | 等，后面会打点 `....` |
+| **`SUCCESS - the service is running`** | **成功了** | 浏览器会自动打开 |
+| `[ERROR] The server was not ready within 150 seconds.` | 超时未就绪 | 点任务栏上 `zscore-dev` 窗口看报错 |
+| `[ERROR] Node.js was not found on this computer.` | 没装 Node.js | 装 <https://nodejs.org/>，装完**关窗重开**再跑 |
+| `[ERROR] Cannot find the web folder:` | 文件不放在项目根目录 | 把 `start-zscore.cmd` 移回项目根目录 |
+| `Live log   : the taskbar window titled "zscore-dev"` | 看运行日志的地方 | 点那个小窗口 |
+| `To stop it : close that "zscore-dev" window` | **停止服务的方法** | 关掉那个 `zscore-dev` 窗口 |
+| `Press any key to close this window.` | 这个窗口可以关了 | 按任意键；**服务在后台继续跑** |
+
+**装依赖脚本 `scripts\setup-windows.cmd`**
+
+| 屏幕上会看到 | 含义 | 怎么办 |
+|---|---|---|
+| `[1/4] Checking the run time environment...` | 检查 Node / Python / Git | —— |
+| `[..] Node.js is missing, installing it with winget. Please wait.` | 正在用 winget 自动安装 | 可能弹管理员确认，点「是」 |
+| `[SKIP] winget is not available on this system.` | 系统太旧，没有 winget | 按提示去官网手动装 |
+| **`Some components were just installed`** | **装完了，要重开窗口再跑一次** | 关窗口 → 重新双击本脚本 |
+| `[2/4] Preparing the Python calculation engine...` | 建 `.venv` + 装 Python 依赖 | 首次约 2–3 分钟 |
+| `[..] direct PyPI download failed, retrying via Tsinghua mirror` | 已自动切清华镜像重试 | 正常，继续等 |
+| `[3/4] Preparing the web environment, npm install...` | 装网页依赖 | 首次约 3–10 分钟 |
+| **`Environment ready, you can start the app now`** | **全部装好了** | 回项目根目录双击 `start-zscore.cmd` |
+| `Setup did NOT fully complete` | 有项目没装上 | 处理完上面标 `[ERROR]` 的项，重跑本脚本 |
+| `Press any key to close this window...` | 结束 | 按任意键 |
+
 ### cmd 与 PowerShell 命令对照
 
 | 想做什么 | PowerShell | 命令提示符（cmd） |
@@ -306,7 +364,7 @@ cd ..
 start-zscore.cmd
 ```
 
-✅ 到这里就和 PowerShell 路线的效果完全一样了。
+✅ 到这里就和 PowerShell 路线的效果完全一样了（只有控制台提示是英文的，原因见上文对照表那一节）。
 
 ---
 
@@ -657,6 +715,8 @@ Stop-Process -Name node -Force
 | `无法加载文件 ...start-zscore.ps1，因为在此系统上禁止运行脚本` | Windows 默认的脚本执行策略 | 用完整命令 `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1`；或在当前窗口先执行 `Set-ExecutionPolicy -Scope Process Bypass` 再运行 |
 | **公司电脑禁用了 PowerShell**，加 `-ExecutionPolicy Bypass` 也照样报「禁止运行脚本」 | 组策略（域控）层面禁的，`Bypass` 覆盖不了 | 改走 cmd 路线：`start-zscore.cmd` + `scripts\setup-windows.cmd`，见 [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作) |
 | 双击 `start-zscore.ps1` 只闪一下 / 提示「不是内部或外部命令」 | `.ps1` 不是可执行文件，必须由 PowerShell 宿主来跑 | 用 `.cmd` 版：[`start-zscore.cmd`](#两个-cmd-脚本)；或按上文用完整命令调用 `.ps1` |
+| **cmd 窗口刷出一大片 `'xxx' 不是内部或外部命令`，中文还被从中间切断** | 手里是**旧版** `.cmd`（中文提示版）—— cmd 解析含中文字节的批处理会丢失字符同步、把行切断后把残片当命令执行 | **重新下载最新版项目**（新版 `.cmd` 已是纯英文提示，不再有这个问题）；或改用 `start-zscore.ps1` |
+| cmd 版的提示为什么是英文的 | 同上：中文在 `.cmd` 里没有可靠写法，`chcp 65001` 也修不了解析 | 见 [为什么 cmd 版的提示是英文的](#为什么-cmd-版的提示是英文的)，以及后面的两张提示对照表 |
 | cmd 里 `cd ~\Desktop` 报「系统找不到指定的路径」 | `~` 只是 PowerShell 的简写，cmd 不认识 | 改用 `cd /d "%USERPROFILE%\Desktop"` |
 | cmd 里中文显示成乱码 | 老版本 cmd 默认码页是 GBK | 执行 `chcp 65001`（本项目的两个 `.cmd` 脚本已自带这一步） |
 | `ModuleNotFoundError: No module named 'pdfplumber'` | Python 依赖没装成功 | 回到项目根目录，重跑 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |

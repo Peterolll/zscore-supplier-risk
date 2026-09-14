@@ -1,34 +1,38 @@
 @echo off
-chcp 65001 >nul
-rem ^ 切到 UTF-8 代码页。本文件是 UTF-8 编码，不切码页的话中文会变乱码。
-
 rem ===============================================================
-rem  Z-Score 供应商信用评估系统 —— 一键环境准备脚本（命令提示符 / cmd 版）
+rem  Z-Score Supplier Risk - Environment Setup -- Command Prompt / cmd
 rem
-rem  用法（在本文件所在目录的上一级，也就是项目根目录）：
-rem      scripts\setup-windows.cmd
-rem  或直接双击本文件（脚本会自动定位项目根目录）。
+rem  Usage: double-click this file, or from the project root run
+rem             scripts\setup-windows.cmd
 rem
-rem  与 scripts\setup-windows.ps1 功能等价，但**完全不依赖 PowerShell**。
-rem  适用于：习惯用命令提示符，或公司策略禁用了 PowerShell 的电脑。
+rem  Same result as scripts\setup-windows.ps1 but needs NO PowerShell.
+rem  Use this one when the machine has PowerShell disabled by policy.
 rem
-rem  做四件事：
-rem    1. 检查 Node.js / Python / Git，缺哪个就用 winget 装哪个
-rem    2. 补一次 PATH（新装的软件不会自动出现在当前窗口里）
-rem    3. 建 Python 环境 .venv 并装齐 requirements.txt（失败自动换清华镜像）
-rem    4. 装网页依赖 npm install（失败自动换 npmmirror 镜像），并真跑一次 import 自检
+rem  It does four things:
+rem    1. checks Node.js / Python / Git, installs what is missing winget
+rem    2. refreshes PATH for this window
+rem    3. creates .venv and installs requirements.txt, China mirror fallback
+rem    4. runs npm install, npmmirror fallback
+rem  then a real python "import" self check.
+rem  Safe to run again: anything already installed is skipped.
 rem
-rem  可以重复运行：已经装好的会自动跳过。
+rem  WHY IS THIS FILE ENGLISH-ONLY?  -- do not "fix" it, read on
+rem  ---------------------------------------------------------------
+rem  cmd.exe mis-parses batch files that contain NON-ASCII bytes: it
+rem  loses character sync mid line, splits the line there, and tries to
+rem  run the leftover fragment as a command. The user then sees a wall
+rem  of  'xxxx' is not recognized as an internal or external command.
+rem  chcp 65001 does NOT fix that, it only fixes display. Pure ASCII is
+rem  the only encoding that is safe on every Windows codepage.
+rem  Also required: CRLF line endings, NO UTF-8 BOM, and no parentheses
+rem  or "!" inside echo text. Verify with scripts/check-cmd-batch.py
 rem
-rem  本文件约定（改动时务必保持）：
-rem    - 编码 UTF-8，且**不加 BOM**（加了 BOM，cmd 会把 @echo off 当命令执行）
-rem    - 行尾必须是 CRLF（纯 LF 会让 goto / call 找不到标签）
-rem  校验命令：python3 scripts/check-cmd-batch.py
+rem  The Chinese step-by-step guide is in the project's docs folder.
 rem ===============================================================
 
 setlocal enabledelayedexpansion
 
-rem 定位项目根目录（本文件在 scripts\ 下，往上一级）
+rem the project root is one level above this file
 pushd "%~dp0.."
 set "REPO_DIR=%CD%"
 popd
@@ -42,160 +46,174 @@ set "SETUP_INCOMPLETE="
 
 echo.
 echo ==============================================
-echo   Z-Score 供应商信用评估系统 - 环境准备
-echo   （命令提示符版 · 不依赖 PowerShell）
+echo   Z-Score Supplier Risk - Environment Setup
+echo   Command Prompt version, no PowerShell needed
 echo ==============================================
 echo.
-echo   项目目录： !REPO_DIR!
+echo   Project folder: !REPO_DIR!
+echo.
+echo   On a machine that has nothing installed yet this takes about
+echo   10 to 25 minutes and roughly 500 MB of downloads. Please wait.
 echo.
 
 if not exist "!WEB_DIR!" (
-    echo [错误] 这不像项目根目录，找不到子目录 zscore-web。
-    echo        请确认本文件位于项目根的 scripts 文件夹内。
+    echo [ERROR] This does not look like the project root, there is no
+    echo         "zscore-web" subfolder here.
+    echo         Please keep this file inside the "scripts" folder of
+    echo         the project.
     goto :done
 )
 
-rem ── 0. 先把常见安装位置补进本次会话的 PATH ──
-rem winget 装完会更新注册表，但**当前窗口仍拿着旧的 PATH**，
-rem 于是出现「明明装完了还提示找不到命令」。这里按默认安装位置兜底。
+rem ---- 0. add well known install locations to PATH, this window only ----
+rem winget updates the registry, but THIS window still holds the old
+rem PATH copy. That is the number one reason for the classic
+rem "I installed it but it still says command not found".
+rem cmd has no reliable way to re-read the registry, so probe the
+rem default install locations instead. Nothing system wide is changed.
 call :prepend_known_paths
 
-rem ── 1. 检查并按需安装 Node.js / Python / Git ──
-echo [1/4] 检查运行环境...
+rem ---- 1. check and install Node.js / Python / Git ----
+echo [1/4] Checking the run time environment...
 call :ensure node   "Node.js" "OpenJS.NodeJS.LTS"
 call :ensure python "Python"  "Python.Python.3.12"
 call :ensure git    "Git"     "Git.Git"
 
-rem 刚装上的东西可能落在新目录，再补一次 PATH
+rem freshly installed tools may live in new folders, refresh again
 call :prepend_known_paths
 
 if defined JUST_INSTALLED (
     echo.
     echo ==============================================
-    echo   已为你装好缺少的组件
+    echo   Some components were just installed
     echo ==============================================
     echo.
-    echo   新装的软件不会自动出现在**当前这个窗口**里。
-    echo   请照做：
-    echo      1. 关闭本窗口
-    echo      2. 重新运行一次本脚本（双击即可）
+    echo   New software does NOT appear in an already open window.
+    echo   Please do this:
+    echo      1. close this window
+    echo      2. run this script again, double-click is fine
     echo.
-    echo   第二次运行会自动跳过已经装好的部分，直接继续装依赖。
+    echo   The second run skips everything already installed and
+    echo   continues with the project dependencies.
     echo.
     goto :done
 )
 
-rem ── 2. Python 环境 ──
+rem ---- 2. Python environment ----
 echo.
-echo [2/4] 准备 Python 计算引擎环境...
+echo [2/4] Preparing the Python calculation engine...
 
 if not defined python_PATH set "python_PATH=python"
 
 if exist "!VENV_PY!" (
-    echo       [已装] 虚拟环境 .venv
+    echo       [OK] virtual environment .venv already exists
 ) else (
-    echo       [创建] 虚拟环境 .venv ...
+    echo       [..] creating virtual environment .venv
     "!python_PATH!" -m venv "!REPO_DIR!\.venv"
     if not exist "!VENV_PY!" (
-        echo       [失败] 虚拟环境创建失败。请确认 Python 安装完整（含 pip 与 venv）。
+        echo       [ERROR] could not create .venv
+        echo               Make sure Python is fully installed and that
+        echo               the pip and venv options were included.
         set "SETUP_INCOMPLETE=1"
         goto :after_py
     )
 )
 
-rem 自检：依赖齐全就跳过安装
+rem self check: skip the install when every module is already importable
 "!VENV_PY!" -c "import pdfplumber, pypdfium2, pypdf, pptx, pydantic, openpyxl" >nul 2>&1
 if not errorlevel 1 (
-    echo       [已装] Python 依赖齐全
+    echo       [OK] Python dependencies are complete
     goto :after_py
 )
 
-echo       [安装] 正在安装 requirements.txt（首次约 2-3 分钟）...
+echo       [..] installing requirements.txt, about 2 to 3 minutes
 "!VENV_PY!" -m pip install -r "!REPO_DIR!\requirements.txt"
 if errorlevel 1 (
-    echo       [提示] 直连 PyPI 失败，改用清华镜像重试...
+    echo       [..] direct PyPI download failed, retrying via Tsinghua mirror
     "!VENV_PY!" -m pip install --timeout 120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r "!REPO_DIR!\requirements.txt"
 )
 
-rem 再自检一次
 "!VENV_PY!" -c "import pdfplumber, pypdfium2, pypdf, pptx, pydantic, openpyxl" >nul 2>&1
 if errorlevel 1 (
-    echo       [失败] Python 依赖仍不完整。上传财报时会提示引擎启动失败。
-    echo              手动重试： "!VENV_PY!" -m pip install --timeout 120 -r "!REPO_DIR!\requirements.txt"
+    echo       [ERROR] Python dependencies are still incomplete, so
+    echo               statement analysis will fail. Manual retry:
+    echo               "!VENV_PY!" -m pip install --timeout 120 -r "!REPO_DIR!\requirements.txt"
     set "SETUP_INCOMPLETE=1"
 ) else (
-    echo       [自检] 依赖齐全
+    echo       [OK] Python dependencies are complete
 )
 
 :after_py
 
-rem ── 3. 网页依赖 ──
+rem ---- 3. web dependencies ----
 echo.
-echo [3/4] 准备网页环境（npm install）...
+echo [3/4] Preparing the web environment, npm install...
 
 if exist "!NEXT_ENTRY!" (
-    echo       [已装] 前端依赖 node_modules
+    echo       [OK] web dependencies already installed
     goto :after_npm
 )
 
 pushd "!WEB_DIR!"
 call npm install
 if errorlevel 1 (
-    echo       [提示] 直连 npm 源失败，改用 npmmirror 镜像重试...
+    echo       [..] direct npm download failed, retrying via npmmirror
     call npm config set registry https://registry.npmmirror.com
     call npm install
 )
 popd
 
 if not exist "!NEXT_ENTRY!" (
-    echo       [失败] 前端依赖安装失败。请检查网络后重试。
-    echo              手动重试：
-    echo                cd /d "!WEB_DIR!"
-    echo                npm config set registry https://registry.npmmirror.com
-    echo                npm install
+    echo       [ERROR] npm install failed. Please check your network.
+    echo               Manual retry:
+    echo                 cd /d "!WEB_DIR!"
+    echo                 npm config set registry https://registry.npmmirror.com
+    echo                 npm install
     set "SETUP_INCOMPLETE=1"
 ) else (
-    echo       [自检] 前端依赖齐全
+    echo       [OK] web dependencies are complete
 )
 
 :after_npm
 
-rem ── 4. 结论 ──
+rem ---- 4. summary ----
 echo.
-echo [4/4] 检查结果
+echo [4/4] Result
 echo.
 
 if defined SETUP_INCOMPLETE (
     echo ==============================================
-    echo   环境准备未全部完成
+    echo   Setup did NOT fully complete
     echo ==============================================
     echo.
-    echo   上面标了 [失败] 的项目请按提示手动处理，
-    echo   处理完**重新运行本脚本**即可 —— 已经装好的会自动跳过。
+    echo   Fix the items marked [ERROR] above, then run this script
+    echo   again. Everything already installed is skipped.
     echo.
 ) else (
     echo ==============================================
-    echo   环境准备完成，可以启动系统了
+    echo   Environment ready, you can start the app now
     echo ==============================================
     echo.
-    echo   下一步，回到项目根目录执行启动脚本：
+    echo   Next step, from the project root, run:
     echo       start-zscore.cmd
+    echo.
+    echo   Or simply double-click start-zscore.cmd in the project root.
     echo.
 )
 
 :done
 echo.
-echo 按任意键关闭本窗口...
+echo Press any key to close this window...
 pause >nul
 exit /b 0
 
 
 rem ===============================================================
-rem  子过程
+rem  Subroutines
 rem ===============================================================
 
 rem ---------------------------------------------------------------
-rem 把常见安装位置补进本次会话的 PATH（只影响本窗口，不改系统设置）
+rem Add well known install locations to PATH, for THIS window only.
+rem No system setting is modified.
 rem ---------------------------------------------------------------
 :prepend_known_paths
 set "EXTRA="
@@ -211,10 +229,11 @@ goto :eof
 
 
 rem ---------------------------------------------------------------
-rem :ensure <命令> <友好名> <winget 包 ID>
-rem   -- 命令可用则跳过；缺失则用 winget 安装
-rem   -- 会跳过微软商店的「假 Python」存根（装在 WindowsApps 目录下）
-rem   -- 找到真实路径后记录到 <命令>_PATH，例如 python_PATH
+rem :ensure <command> <friendly name> <winget package id>
+rem   command available  -> skip
+rem   otherwise          -> install with winget
+rem   the Microsoft Store "fake Python" stub in WindowsApps is ignored
+rem   the real path is recorded into <command>_PATH, e.g. python_PATH
 rem ---------------------------------------------------------------
 :ensure
 set "FOUND=0"
@@ -227,27 +246,28 @@ for /f "delims=" %%P in ('where %~1 2^>nul') do (
 )
 
 if "!FOUND!"=="1" (
-    echo       [已装] %~2
+    echo       [OK] %~2
     goto :eof
 )
 
-echo       [缺失] %~2 —— 正在用 winget 自动安装，请稍候...
+echo       [..] %~2 is missing, installing it with winget. Please wait.
 
 where winget >nul 2>&1
 if errorlevel 1 (
-    echo              [跳过] 本机没有 winget 命令，请手动安装 %~2。
-    echo                     下载地址见 docs\新手安装指南-Windows.md
+    echo            [SKIP] winget is not available on this system.
+    echo                   Please install %~2 manually, see the docs folder.
     set "SETUP_INCOMPLETE=1"
     goto :eof
 )
 
 winget install --id %~3 --exact --accept-package-agreements --accept-source-agreements
 if errorlevel 1 (
-    echo              [失败] %~2 自动安装未成功，请手动安装后重新运行本脚本。
+    echo            [FAIL] could not install %~2 automatically.
+    echo                   Please install it manually, then run this again.
     set "SETUP_INCOMPLETE=1"
     goto :eof
 )
 
-echo              [完成] %~2 已安装
+echo            [OK] %~2 installed
 set "JUST_INSTALLED=1"
 goto :eof

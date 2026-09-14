@@ -143,6 +143,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 scripts\setup-windows.cmd
 ```
 
+> The `.cmd` scripts print **English only, by design**: `cmd.exe` mis-parses batch files
+> containing non-ASCII bytes (it splits a line mid-way and runs the fragment as a command).
+> Chinese text in a `.cmd` has no safe form. See the message-to-meaning tables in
+> [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md).
+
 Both check and install prerequisites → create `.venv` and install the Python deps
 (falling back to a China mirror on network failure) → install the web deps → run a real
 `import` self-check. **Idempotent**: anything already installed is skipped.
@@ -174,6 +179,7 @@ start-zscore.cmd
 ```
 
 > You can also just **double-click** `start-zscore.cmd` in the repo root.
+> Its console messages are **English only** (see the note above on why).
 
 The script locates the repo root automatically, starts the dev server in the background (survives terminal close), and prints the URL once ready:
 

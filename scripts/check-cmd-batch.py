@@ -12,11 +12,18 @@
      （注意与 .ps1 恰好相反：.ps1 必须**有** BOM）
   2. **行尾不能是纯 LF**：必须 CRLF。纯 LF 时 `goto` / `call` 会报
      「系统找不到指定的批处理标签」——这是最容易在 macOS 上写出来的坑
-  3. **码页**：含中文却没写 `chcp 65001`（且必须在第一条中文之前）→ 乱码
+  3. **必须纯 ASCII（硬规则）**：cmd.exe 解析含非 ASCII 字节的批处理时会**字符错位**，
+     把一行从中间切断、再把残片当命令执行，用户看到满屏
+     「xxx 不是内部或外部命令」。`chcp 65001` **只能修显示、修不了解析**，
+     所以中文提示没有安全的写法 —— 要么改成英文，要么改用 .ps1
   4. **标签**：`goto :label` / `call :label` 引用的标签必须真实存在；标签不得重复
   5. **百分号**：`for` 块外写了 `%%X`，或 `for` 块内写了 `%X` —— 批处理最常见的错
   6. **续行符**：`^` 后面跟了空白字符，续行会失效
-  7. **echo 特殊字符**：`echo` 行里出现未转义、未加引号的 `&` `|` `<` `>`
+  7. **echo 行的特殊字符**：未转义的 `&` `|` `<` `>`（命令分隔/重定向）、
+     裸露的 `!`（被延迟展开吃掉）
+  8. **括号只能是块分隔符**：除了 `if ... (` / `for ... do (` / `)` `) else (` 这几种
+     形态，任何其它行出现 `(` 或 `)` 都报错（**`rem` 行也不例外**）——
+     块内的一个多余括号会提前闭合那个块，后面的命令会被整体误读
 
 用法：
     python3 scripts/check-cmd-batch.py                 # 校验仓库内所有 .cmd/.bat
@@ -41,12 +48,21 @@ RE_GOTO = re.compile(r"\bgoto\s+:?([A-Za-z_][\w]*)", re.I)
 RE_CALL_LABEL = re.compile(r"\bcall\s+:([A-Za-z_][\w]*)", re.I)
 RE_ECHO = re.compile(r"^\s*@?echo(\.|,|;|:|\(|\s)?(.*)$", re.I)
 
+# 括号的合法形态：只作为 if / for 的块分隔符
+RE_BLOCK_OPEN = re.compile(r"^(?:if|for|else)\b.*\($", re.I)
+RE_BLOCK_CLOSE = re.compile(r"^\)$")
+RE_CLOSE_ELSE = re.compile(r"^\)\s*else\s*\($")
+
 # 内置伪标签，不需要自己定义
 BUILTIN_LABELS = {"eof"}
 
 
-def has_cjk(text: str) -> bool:
-    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+def block_shape_ok(line: str) -> bool:
+    """这一行是不是「括号只当块分隔符」的合法形态？"""
+    s = line.strip()
+    return bool(
+        RE_BLOCK_OPEN.match(s) or RE_BLOCK_CLOSE.match(s) or RE_CLOSE_ELSE.match(s)
+    )
 
 
 def strip_quoted(s: str) -> str:
@@ -55,21 +71,31 @@ def strip_quoted(s: str) -> str:
 
 
 def check_echo(line: str, lineno: int, path: str) -> list[str]:
-    """echo 行里未转义的 & | < > 会被当成命令分隔/重定向，导致输出错乱。"""
+    """echo 行里三类「会被 cmd 吃掉/误读」的字符。"""
     m = RE_ECHO.match(line)
     if not m:
         return []
     body = m.group(2)
-    # 先吃掉 ^ 转义，再吃掉引号内容
-    body = re.sub(r"\^[&|<>!^]", "", body)
+    # 剥掉 ^ 转义与引号内容，剩下的才是真正「裸露」的字符
+    body = re.sub(r"\^.?", "", body)
     body = strip_quoted(body)
+
+    problems: list[str] = []
     bad = [c for c in "&|<>" if c in body]
     if bad:
-        return [
+        problems.append(
             f"[echo] {path}:{lineno} echo 行里有未转义的 {' '.join(bad)}，"
-            "需要写成 ^& ^| ^< ^> 或用双引号包起来"
-        ]
-    return []
+            "会被当成命令分隔 / 重定向；需写成 ^& ^| ^< ^> 或放进双引号"
+        )
+    # 括号由独立的「括号只能是块分隔符」规则统一检查，这里不重复报
+    # !VAR! 是合法的延迟展开，先把它们摘掉，剩下的裸 ! 才会被吃掉
+    residue = re.sub(r"![A-Za-z_][A-Za-z0-9_]*!", "", body)
+    if "!" in residue:
+        problems.append(
+            f"[echo] {path}:{lineno} echo 行里有裸露的 ! —— "
+            "在 setlocal enabledelayedexpansion 下会被吃掉；请写成 ^! 或改写文案"
+        )
+    return problems
 
 
 def check(path: str) -> list[str]:
@@ -108,21 +134,22 @@ def check(path: str) -> list[str]:
 
     lines = text.replace("\r\n", "\n").split("\n")
 
-    # ── 3) 含中文时必须有 chcp 65001，且在第一处中文之前 ──
-    if has_cjk(text):
-        chcp_at = text.find("chcp 65001")
-        first_cjk = next(
-            (i for i, ch in enumerate(text) if "\u4e00" <= ch <= "\u9fff"), -1
+    # ── 3) 必须纯 ASCII ──
+    # 这是在客户机上实测踩出来的：中文批处理不是「乱码」那么轻，
+    # 而是 cmd 会丢失字符同步、把一行从中间切断，残片被当成命令执行。
+    # chcp 65001 只能让存活下来的文字显示正确，解析依旧是坏的。
+    non_ascii = [(i, ch) for i, ch in enumerate(text) if ord(ch) > 127]
+    if non_ascii:
+        line_of = text[: non_ascii[0][0]].count("\n") + 1
+        sample = "".join(ch for _, ch in non_ascii[:8])
+        problems.append(
+            f"[ASCII] {path} 含 {len(non_ascii)} 处非 ASCII 字符"
+            f"（首个在第 {line_of} 行，例如 `{sample}`）—— "
+            "cmd.exe 解析含非 ASCII 字节的批处理时会字符错位、把行从中间切断，"
+            "残片被当成命令执行（用户看到满屏「不是内部或外部命令」）；"
+            "chcp 65001 只能修显示、修不了解析。"
+            "请把提示改成纯 ASCII 英文（中文说明写进 Markdown 指南），或改用 .ps1"
         )
-        if chcp_at < 0:
-            problems.append(
-                f"[码页] {path} 含中文但没有 `chcp 65001` —— 中文会变乱码"
-            )
-        elif chcp_at > first_cjk:
-            problems.append(
-                f"[码页] {path} 的 `chcp 65001` 出现在第一处中文之后，"
-                "前面的中文仍会乱码，请把它挪到脚本最前面"
-            )
 
     # ── 4~7) 逐行检查 ──
     labels: dict[str, int] = {}
@@ -141,6 +168,14 @@ def check(path: str) -> list[str]:
     goto_targets: list[tuple[str, int, str]] = []
     for i, line in enumerate(lines, 1):
         stripped = line.rstrip()
+        # 括号只允许作为 if / for 的块分隔符出现 —— rem 行也不例外，
+        # 因为块内的一个多余 ) 会把块提前闭合，后面的命令全被误读。
+        if ("(" in stripped or ")" in stripped) and not block_shape_ok(stripped):
+            problems.append(
+                f"[括号] {path}:{i} 出现了不是块分隔符的括号 —— "
+                "一旦本行位于 if/for 的 (...) 块内，括号会提前闭合那个块，"
+                "后面的命令会被误读。请改写文案，或写成 ^( ^)"
+            )
         # 6) 续行符后有空白
         if stripped != line and stripped.endswith("^"):
             problems.append(
