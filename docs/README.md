@@ -27,7 +27,8 @@ docs/
 
 | 文档 | 说明 |
 |------|------|
-| [`新手安装指南.md`](./新手安装指南.md) | **零基础安装教程**。从「怎么打开终端」开始，逐屏复制粘贴：检查环境 → 下载项目（Git 克隆 / ZIP 两种方式）→ 装依赖 → 启动 → 常见报错排查。完全没用过终端就先看这个。 |
+| [`新手安装指南-Windows.md`](./新手安装指南-Windows.md) | **零基础安装教程（Windows）**。逐屏复制粘贴：检查环境 → 拿项目 → 装依赖 → 启动 → 报错排查。另有「懒人通道」一条命令装完，以及**完全不用 PowerShell 的命令提示符（cmd）路线**。 |
+| [`新手安装指南.md`](./新手安装指南.md) | **零基础安装教程（macOS）**。从「怎么打开终端」开始，逐屏复制粘贴：检查环境 → 下载项目（Git 克隆 / ZIP 两种方式）→ 装依赖 → 启动 → 常见报错排查。完全没用过终端就先看这个。 |
 
 ---
 
@@ -114,18 +115,20 @@ Back to project home → [`../README.md`](../README.md) · [中文](../README.md
 
 ```
 docs/
-├── README.md          # this index
-├── 新手安装指南.md     # beginner install guide (Chinese)
-├── design/            # design & review documents
-├── reports/           # verification, fix & review reports
-└── samples/           # statement layout samples (redacted)
+├── README.md                # this index
+├── 新手安装指南-Windows.md   # beginner install guide (Windows)
+├── 新手安装指南.md           # beginner install guide (macOS)
+├── design/                  # design & review documents
+├── reports/                 # verification, fix & review reports
+└── samples/                 # statement layout samples (redacted)
 ```
 
 #### 0. Getting Started
 
 | Document | Language | Description |
 |----------|----------|-------------|
-| [`新手安装指南.md`](./新手安装指南.md) | ZH | **Beginner install guide.** Starts from "how to open Terminal", then copy-paste steps: check environment → get the project (git clone / ZIP) → install dependencies → launch → troubleshooting. Read this first if you have never used a terminal. |
+| [`新手安装指南-Windows.md`](./新手安装指南-Windows.md) | ZH | **Beginner install guide (Windows).** Copy-paste steps: check environment → get the project → install dependencies → launch → troubleshooting. Includes a one-command bootstrap and a **Command Prompt (cmd) route that needs no PowerShell at all**. |
+| [`新手安装指南.md`](./新手安装指南.md) | ZH | **Beginner install guide (macOS).** Starts from "how to open Terminal", then copy-paste steps: check environment → get the project (git clone / ZIP) → install dependencies → launch → troubleshooting. Read this first if you have never used a terminal. |
 
 #### 1. Design & Review — [`design/`](./design)
 

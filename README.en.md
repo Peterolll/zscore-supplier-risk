@@ -131,16 +131,25 @@ All design documents, review notes, and verification reports are archived under 
 
 On Windows, a single command installs everything (it will auto-install Node.js / Python via winget if missing):
 
+**PowerShell**
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 ```
 
-It checks and installs prerequisites → creates `.venv` and installs the Python deps
-(falls back to a China mirror on network failure) → installs the web deps → runs a real
+**Command Prompt (cmd)** — for machines where corporate policy blocks PowerShell; identical result:
+
+```cmd
+scripts\setup-windows.cmd
+```
+
+Both check and install prerequisites → create `.venv` and install the Python deps
+(falling back to a China mirror on network failure) → install the web deps → run a real
 `import` self-check. **Idempotent**: anything already installed is skipped.
 
 > macOS / Linux users: just follow the two manual steps under "Run From Source" below
 > (or see [`docs/新手安装指南.md`](./docs/新手安装指南.md)).
+> For a step-by-step Windows walkthrough see [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md).
 
 ### One-command Startup (recommended)
 
@@ -157,6 +166,14 @@ Install dependencies first (see above); after that, starting is a single command
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 ```
+
+**Windows (Command Prompt / cmd, no PowerShell required)**
+
+```cmd
+start-zscore.cmd
+```
+
+> You can also just **double-click** `start-zscore.cmd` in the repo root.
 
 The script locates the repo root automatically, starts the dev server in the background (survives terminal close), and prints the URL once ready:
 
@@ -232,6 +249,7 @@ zscore-supplier-risk/
 ├── requirements.txt           # Python engine dependencies
 ├── start-zscore.sh            # One-command startup script (macOS / Linux)
 ├── start-zscore.ps1           # One-command startup script (Windows PowerShell)
+├── start-zscore.cmd           # One-command startup script (Windows cmd, no PowerShell)
 ├── .gitignore                 # Excludes secrets / real statements / databases
 │
 ├── docs/                      # Documentation archive (see docs/README.md)
@@ -244,9 +262,11 @@ zscore-supplier-risk/
 │
 ├── scripts/
 │   ├── push-to-github.sh      # GitHub push helper script
-│   ├── setup-windows.ps1      # Windows one-command dependency setup (incl. prerequisites)
+│   ├── setup-windows.ps1      # Windows one-command dependency setup (PowerShell)
+│   ├── setup-windows.cmd      # Windows one-command dependency setup (Command Prompt)
 │   ├── check-docs-links.py    # Docs link & anchor checker
 │   ├── check-ps1-syntax.py    # .ps1 syntax & UTF-8 BOM checker (no PowerShell required)
+│   ├── check-cmd-batch.py     # .cmd/.bat line-ending, encoding & label checker (no Windows)
 │   └── verify_pdf_render.py   # PDF render regression: pypdfium2 vs poppler equivalence
 │
 ├── zscore-web/                # Next.js 16 web application

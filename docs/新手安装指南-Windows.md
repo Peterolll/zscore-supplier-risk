@@ -14,6 +14,7 @@
 - [名词速查](#名词速查)
 - [先检查：你的电脑装齐了没有](#先检查你的电脑装齐了没有)
 - [⚡ 懒人通道：一条命令从零装到能启动](#-懒人通道一条命令从零装到能启动)
+- [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作)
 - [方式一：Git 克隆（推荐）](#方式一git-克隆推荐)
 - [方式二：下载 ZIP](#方式二下载-zip)
 - [共同步骤：启动系统](#共同步骤启动系统)
@@ -63,7 +64,10 @@
 
 > 💡 建议：找到后**右键 → 固定到任务栏**，以后一键打开。
 
-> ⚠️ 不要用「命令提示符 / cmd」。虽然长得像，但本指南的命令是给 PowerShell 写的。
+> ℹ️ **本指南默认用 PowerShell**，因为 Windows 10 / 11 都自带、最省事。
+>
+> 但如果你**更习惯命令提示符（cmd）**，或者**公司电脑禁用了 PowerShell**，
+> 本指南也准备了完整的 cmd 走法 → 直接看 [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作)。
 
 ---
 
@@ -182,7 +186,127 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 > ⚠️ 如果桌面已经有 `zscore-supplier-risk-main` 文件夹，`Expand-Archive -Force`
 > 会**覆盖**里面的同名文件。第一次安装不用担心；想保留旧版请先改名。
 >
+> ℹ️ **懒人通道依赖 PowerShell**（下载、解压用的都是 PowerShell 命令）。
+> 如果公司电脑禁用了 PowerShell，请改看 [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作)。
+>
 > 想看清楚每一步在做什么、或者命令跑不通，请继续往下看**方式一 / 方式二**的手动流程。
+
+---
+
+## 只在命令提示符（cmd）里操作
+
+> **这一节回答一个问题：我不想用 PowerShell，能不能只用命令提示符？**
+>
+> 能。安装和启动的核心命令（`node` / `npm` / `python`）在 cmd 里都能直接跑，
+> 只有 `.ps1` 脚本不能 —— 所以项目额外准备了两个 `.cmd` 脚本顶替它们。
+
+### 先分清两个概念（很关键）
+
+| 名词 | 到底是什么 |
+|---|---|
+| 终端窗口 | 只是**外壳**。里面跑哪个命令解释器，取决于你打开的是哪一个 |
+| Windows Terminal | Windows 11 自带的**多标签窗口**，既可以开 PowerShell 标签，也可以开 cmd 标签 |
+| PowerShell | 一种命令解释器（`Get-ChildItem`、`Stop-Process` 这种写法） |
+| 命令提示符 / cmd | 另一种命令解释器（`dir`、`taskkill` 这种写法），**不能运行 `.ps1`** |
+
+所以：**`start-zscore.ps1` 在 cmd 里是跑不起来的** —— 直接敲会提示「不是内部或外部命令」，
+双击它多半只会用记事本打开、或者闪一下就消失。这不是文件坏了，是两种解释器的语法本来就不通。
+
+### 两个 cmd 脚本
+
+| 原来的 PowerShell 脚本 | 对应的 cmd 脚本 | 作用 |
+|---|---|---|
+| `start-zscore.ps1` | **`start-zscore.cmd`** | 启动系统（自动补装前端依赖、清理残留锁文件、等就绪、自动开浏览器） |
+| `scripts\setup-windows.ps1` | **`scripts\setup-windows.cmd`** | 一键装齐所有依赖（缺 Node / Python / Git 就用 winget 补装） |
+
+**用法：在文件资源管理器里直接双击即可**，也可以在命令提示符里敲文件名后回车。
+
+> 两个脚本都可以**重复运行**：已经装好的部分会自动跳过。
+
+### cmd 与 PowerShell 命令对照
+
+| 想做什么 | PowerShell | 命令提示符（cmd） |
+|---|---|---|
+| 我在哪个目录 | `pwd` | `cd`（不带参数）或 `echo %CD%` |
+| 切到桌面 | `cd ~\Desktop` | `cd /d "%USERPROFILE%\Desktop"` |
+| 列出目录内容 | `dir` / `ls` | `dir` |
+| 运行 `.ps1` 脚本 | `powershell -ExecutionPolicy Bypass -File .\x.ps1` | ❌ 跑不了，改用同名 `.cmd` |
+| 运行 `.cmd` 脚本 | `.\x.cmd` | `x.cmd`（或直接双击） |
+| 关闭服务 | `Stop-Process -Name node -Force` | `taskkill /F /IM node.exe` |
+| 粘贴 | 右键粘贴 / `Ctrl+V` | **右键粘贴**；老版本 cmd 需在标题栏右键 →「编辑」→「粘贴」 |
+
+> ⚠️ 最容易踩的坑：`~` 这个「家目录」简写**只有 PowerShell 认**。
+> 在 cmd 里 `cd ~\Desktop` 会失败，必须写 `cd /d "%USERPROFILE%\Desktop"`。
+
+### 从零手动安装（cmd 版，不用脚本）
+
+全新电脑、上面两个脚本都用不了时，逐行复制粘贴（**一行一条，回车执行**）。
+
+**第 1 步：装三个工具**（已经有版本号的可以跳过）
+
+```cmd
+winget install --id OpenJS.NodeJS.LTS -e
+```
+
+```cmd
+winget install --id Python.Python.3.12 -e
+```
+
+```cmd
+winget install --id Git.Git -e
+```
+
+> 装完后**必须关掉这个窗口、重新打开一个命令提示符**，否则新装的命令找不到。
+> 没有 `winget` 的旧系统请按上文的官网下载方式安装。
+
+**第 2 步：进入项目文件夹**
+
+```cmd
+cd /d "%USERPROFILE%\Desktop\zscore-supplier-risk"
+```
+
+> 用「下载 ZIP」方式的文件夹名是 `zscore-supplier-risk-main`（带 `-main`）。
+
+**第 3 步：装 Python 计算引擎**（约 2–3 分钟）
+
+```cmd
+py -3 -m venv .venv
+```
+
+```cmd
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+> 报 `Could not find a version ... (from versions: none)` **不是包不存在**，是索引超时，
+> 换国内镜像并放宽超时重试：
+>
+> ```cmd
+> .venv\Scripts\python.exe -m pip install --timeout 120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+> ```
+
+**第 4 步：装网页依赖**（约 1–3 分钟）
+
+```cmd
+cd zscore-web
+```
+
+```cmd
+npm install
+```
+
+> 慢的话先切镜像 `npm config set registry https://registry.npmmirror.com`，再重跑 `npm install`。
+
+**第 5 步：回到项目根目录启动**
+
+```cmd
+cd ..
+```
+
+```cmd
+start-zscore.cmd
+```
+
+✅ 到这里就和 PowerShell 路线的效果完全一样了。
 
 ---
 
@@ -311,6 +435,8 @@ pwd
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 ```
+
+> 用命令提示符（cmd）的话，等价命令是 `scripts\setup-windows.cmd`。
 
 它会依次完成：
 
@@ -462,6 +588,20 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 
 然后浏览器打开 <http://localhost:3000>（脚本通常已自动打开）。
 
+**如果你用命令提示符**，把 `cd` 那行换成：
+
+```cmd
+cd /d "%USERPROFILE%\Desktop\zscore-supplier-risk"
+```
+
+第二行换成：
+
+```cmd
+start-zscore.cmd
+```
+
+> 也可以直接进那个文件夹，**双击 `start-zscore.cmd`**，最省事。
+
 ### 更新到最新版（仅方式一支持）
 
 ```powershell
@@ -486,6 +626,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 Stop-Process -Name node -Force
 ```
 
+> 命令提示符（cmd）里对应的是：
+>
+> ```cmd
+> taskkill /F /IM node.exe
+> ```
+>
+> 更简单的办法：启动时脚本会开一个标题是 **`zscore-dev`** 的小窗口，
+> **关掉那个窗口**服务就停了（关这一个不影响别的 Node 程序，比 `taskkill` 更安全）。
+
 > 不想关也没关系，重启电脑会自动停。
 
 ### 如果提示「服务已在运行」
@@ -506,6 +655,10 @@ Stop-Process -Name node -Force
 | `git : 无法将...识别为 cmdlet` | Git 没装 | 去 <https://git-scm.com/download/win> 下载安装，装完**重开 PowerShell** |
 | `npm : 无法将...识别为 cmdlet` | Node 没装 | 去 <https://nodejs.org/zh-cn> 装 LTS 版 `.msi`，装完**重开 PowerShell** |
 | `无法加载文件 ...start-zscore.ps1，因为在此系统上禁止运行脚本` | Windows 默认的脚本执行策略 | 用完整命令 `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1`；或在当前窗口先执行 `Set-ExecutionPolicy -Scope Process Bypass` 再运行 |
+| **公司电脑禁用了 PowerShell**，加 `-ExecutionPolicy Bypass` 也照样报「禁止运行脚本」 | 组策略（域控）层面禁的，`Bypass` 覆盖不了 | 改走 cmd 路线：`start-zscore.cmd` + `scripts\setup-windows.cmd`，见 [只在命令提示符（cmd）里操作](#只在命令提示符cmd里操作) |
+| 双击 `start-zscore.ps1` 只闪一下 / 提示「不是内部或外部命令」 | `.ps1` 不是可执行文件，必须由 PowerShell 宿主来跑 | 用 `.cmd` 版：[`start-zscore.cmd`](#两个-cmd-脚本)；或按上文用完整命令调用 `.ps1` |
+| cmd 里 `cd ~\Desktop` 报「系统找不到指定的路径」 | `~` 只是 PowerShell 的简写，cmd 不认识 | 改用 `cd /d "%USERPROFILE%\Desktop"` |
+| cmd 里中文显示成乱码 | 老版本 cmd 默认码页是 GBK | 执行 `chcp 65001`（本项目的两个 `.cmd` 脚本已自带这一步） |
 | `ModuleNotFoundError: No module named 'pdfplumber'` | Python 依赖没装成功 | 回到项目根目录，重跑 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
 | 上传财报后提示**引擎启动失败 / SPAWN_ERROR** | Python 环境不完整 | 跑[第 1 步的自检命令](#第-1-步装-python-环境约-23-分钟)；确认 `pip install` 是在**项目根目录**执行的 |
 | 只有一个 PDF 能分析，多个 PDF 一起传就报错 | 缺 `pypdf`（多文件合并用） | 重跑 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
@@ -542,20 +695,44 @@ powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 Stop-Process -Name node -Force
 ```
 
+**同一条流程，命令提示符（cmd）版：**
+
+```cmd
+rem ── 前置：先装 Node.js 和 Python（只做一次）──
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Python.Python.3.12 -e
+rem 之后关掉并重新打开命令提示符
+
+rem ── 拿到项目 ──
+cd /d "%USERPROFILE%\Desktop"
+git clone https://github.com/Peterolll/zscore-supplier-risk.git   rem 没装 Git 就用「下载 ZIP」方式
+cd zscore-supplier-risk
+
+rem ── 一键装完全部依赖（只做一次，可重复运行）──
+scripts\setup-windows.cmd
+
+rem ── 每次启动 ──
+start-zscore.cmd
+rem 浏览器打开 http://localhost:3000
+
+rem ── 关闭 ──
+taskkill /F /IM node.exe
+```
+
 ---
 
 ## 与 macOS 版本的命令对照
 
-| 用途 | macOS | Windows (PowerShell) |
-|---|---|---|
-| 打开命令行 | 终端 / Terminal | Windows PowerShell |
-| 列出当前文件夹内容 | `ls` | `dir` |
-| 建 Python 虚拟环境 | `python3 -m venv .venv` | `python -m venv .venv` |
-| 调用 venv 里的 Python | `./.venv/bin/python` | `.\.venv\Scripts\python.exe` |
-| 装 Python 依赖 | `./.venv/bin/pip install -r requirements.txt` | `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` |
-| 一键装全部依赖 | （手动两步） | `powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1` |
-| 启动系统 | `bash start-zscore.sh` | `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1` |
-| 关闭服务 | `lsof -ti :3000 \| xargs kill` | `Stop-Process -Name node -Force` |
+| 用途 | macOS | Windows (PowerShell) | Windows (cmd) |
+|---|---|---|---|
+| 打开命令行 | 终端 / Terminal | Windows PowerShell | 命令提示符 / cmd |
+| 列出当前文件夹内容 | `ls` | `dir` | `dir` |
+| 建 Python 虚拟环境 | `python3 -m venv .venv` | `python -m venv .venv` | `py -3 -m venv .venv` |
+| 调用 venv 里的 Python | `./.venv/bin/python` | `.\.venv\Scripts\python.exe` | `.venv\Scripts\python.exe` |
+| 装 Python 依赖 | `./.venv/bin/pip install -r requirements.txt` | `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` | `.venv\Scripts\python.exe -m pip install -r requirements.txt` |
+| 一键装全部依赖 | （手动两步） | `powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1` | `scripts\setup-windows.cmd` |
+| 启动系统 | `bash start-zscore.sh` | `powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1` | `start-zscore.cmd` |
+| 关闭服务 | `lsof -ti :3000 \| xargs kill` | `Stop-Process -Name node -Force` | `taskkill /F /IM node.exe` |
 
 ---
 

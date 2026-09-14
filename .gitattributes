@@ -1,0 +1,14 @@
+# Git 行尾约定
+#
+# 为什么要写这个文件：
+#   cmd.exe 读取批处理脚本（.cmd/.bat）时，是靠**字节偏移**去定位 goto / call 的标签的。
+#   如果脚本是纯 LF 行尾，偏移会算错，运行时直接报「系统找不到指定的批处理标签」。
+#   这类问题在 macOS / Linux 上用编辑器一改文件就会出现（编辑器默认写 LF），
+#   而且在类 Unix 系统上完全看不出来 —— 只有到 Windows 上才炸。
+#
+# 因此：这两种文件强制以 CRLF 检出。
+#   校验命令： python3 scripts/check-cmd-batch.py
+#
+# 注意：.ps1 / .sh 不需要在这里处理 —— PowerShell 与 POSIX shell 都能正确读 LF。
+*.cmd text eol=crlf
+*.bat text eol=crlf

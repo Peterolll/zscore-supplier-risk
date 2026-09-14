@@ -134,15 +134,24 @@ git pull
 
 Windows 用户拿到项目后，**一条命令装完全部依赖**（缺 Node.js / Python 时会自动用 winget 安装）：
 
+**PowerShell**
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 ```
 
-脚本会：检查并补装前置组件 → 新建 `.venv` 并装 Python 依赖（失败自动换国内镜像重试）
+**命令提示符（cmd）** —— 更适合公司电脑禁用了 PowerShell 的情况，效果完全相同：
+
+```cmd
+scripts\setup-windows.cmd
+```
+
+两个脚本都会：检查并补装前置组件 → 新建 `.venv` 并装 Python 依赖（失败自动换国内镜像重试）
 → 装网页依赖 → 真跑一次 `import` 自检。**可重复运行**，已装好的会自动跳过。
 
 > macOS / Linux 用户按下方「从源码运行」手动两步即可（或参考
 > [`docs/新手安装指南.md`](./docs/新手安装指南.md)）。
+> Windows 零基础图文流程见 [`docs/新手安装指南-Windows.md`](./docs/新手安装指南-Windows.md)。
 
 ### 一键启动（推荐）
 
@@ -159,6 +168,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-zscore.ps1
 ```
+
+**Windows（命令提示符 / cmd）**
+
+```cmd
+start-zscore.cmd
+```
+
+> 也可以直接**双击**仓库根目录的 `start-zscore.cmd`。该脚本不依赖 PowerShell，
+> 适合不想用、或公司策略禁用了 PowerShell 的电脑。
 
 脚本会自动定位仓库根目录、后台启动开发服务器（关闭终端不中断），并在就绪后提示访问地址：
 
@@ -232,6 +250,7 @@ zscore-supplier-risk/
 ├── requirements.txt           # Python 引擎依赖
 ├── start-zscore.sh            # 一键启动脚本（macOS / Linux）
 ├── start-zscore.ps1           # 一键启动脚本（Windows PowerShell）
+├── start-zscore.cmd           # 一键启动脚本（Windows 命令提示符，不依赖 PowerShell）
 ├── .gitignore                 # 排除密钥 / 真实财报 / 数据库
 │
 ├── docs/                      # 文档归档（详见 docs/README.md）
@@ -243,10 +262,12 @@ zscore-supplier-risk/
 │   └── samples/               #   财报版式样本截图（脱敏）
 │
 ├── scripts/
-│   ├── setup-windows.ps1      # Windows 一键装依赖（含前置组件自动补装）
+│   ├── setup-windows.ps1      # Windows 一键装依赖（PowerShell 版）
+│   ├── setup-windows.cmd      # Windows 一键装依赖（命令提示符版）
 │   ├── push-to-github.sh      # GitHub 推送辅助脚本
 │   ├── check-docs-links.py    # 文档链接与锚点校验
 │   ├── check-ps1-syntax.py    # .ps1 语法与 UTF-8 BOM 校验（无需 PowerShell）
+│   ├── check-cmd-batch.py     # .cmd/.bat 行尾、编码与标签校验（无需 Windows）
 │   └── verify_pdf_render.py   # PDF 渲染回归：pypdfium2 与 poppler 输出等价性
 │
 ├── zscore-web/                # Next.js 16 Web 应用
