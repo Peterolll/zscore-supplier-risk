@@ -6,6 +6,7 @@
 import Link from "next/link";
 import UploadForm from "@/components/UploadForm";
 import RiskBadge from "@/components/RiskBadge";
+import { IconChart } from "@/components/Icons";
 import { ZONE_COLORS } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n";
 import type { SupplierSummary } from "@/lib/types";
@@ -33,7 +34,9 @@ export default function HomeClient({ suppliers }: { suppliers: SupplierSummary[]
         </div>
         {suppliers.length === 0 ? (
           <div className="text-sm text-gray-500 border rounded-lg p-6 text-center bg-gray-50">
-            <div className="text-3xl mb-2">📊</div>
+            <div className="mb-2 flex justify-center text-gray-400">
+              <IconChart className="w-9 h-9" />
+            </div>
             <div className="font-medium text-gray-700 mb-1">{t.homepage.emptyTitle}</div>
             <div className="text-xs text-gray-500">{t.homepage.emptyHint}</div>
           </div>

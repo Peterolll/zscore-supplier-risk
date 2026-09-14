@@ -77,7 +77,7 @@ export default function DictionaryPage() {
     });
     const data = await res.json();
     setStatus(
-      data.ok ? "已保存 ✅ 下次上传分析即生效" : "保存失败：" + (data.message || data.error)
+      data.ok ? "已保存，下次上传分析即生效" : "保存失败：" + (data.message || data.error)
     );
   }
 

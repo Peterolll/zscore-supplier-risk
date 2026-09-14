@@ -216,7 +216,7 @@ export async function POST(
   const finalSuggestions = results.filter((s) => requestedFields.includes(s.field_key));
 
   // 8.5 统一取值器：① 库中已确认值 → ② 本次 AI 原始返回（未过滤，含未请求的旁证字段）
-  //     ⚠️ 旧实现用 finalSuggestions（已按 requestedFields 过滤）找 PBT，
+  //     【易踩坑】旧实现用 finalSuggestions（已按 requestedFields 过滤）找 PBT，
   //        当只请求 ebit 时 PBT 已被过滤掉 → 恒等推导永远失效。此处改为查全量 results。
   const rawByKey = new Map<string, number>();
   for (const s of results) {

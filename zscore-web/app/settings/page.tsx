@@ -21,7 +21,7 @@ export default async function SettingsPage() {
     <div className="max-w-2xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-2">设置</h1>
       <p className="text-sm text-gray-600 mb-6">
-        配置 AI 分析功能所需的 API。支持智谱 GLM、OpenAI、Deepseek、Moonshot 及任意 OpenAI 兼容端点。配置后，详情页中含人工补录 / OCR 识别 / 回退推导值的字段可点击「🤖 AI 分析补全」自动补全。
+        配置 AI 分析功能所需的 API。支持智谱 GLM、OpenAI、Deepseek、Moonshot 及任意 OpenAI 兼容端点。配置后，详情页中含人工补录 / OCR 识别 / 回退推导值的字段可点击「AI 分析补全」自动补全。
       </p>
       <SettingsClient
         initialConfig={cfg}

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { IconWarn, IconPlug, IconCheck, IconX } from "./Icons";
 
 interface ProviderPreset {
   key: string;
@@ -136,7 +137,7 @@ export default function SettingsClient({
         setMsg("保存失败：" + (data.error || res.status));
         return;
       }
-      setMsg("保存成功 ✅");
+      setMsg("保存成功");
       setApiKey("");
       setCurrentConfig({
         provider: data.data.provider,
@@ -231,7 +232,10 @@ export default function SettingsClient({
           </div>
         ) : (
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-amber-600 font-medium">⚠ 未配置</span>
+            <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+              <IconWarn className="w-3.5 h-3.5" />
+              未配置
+            </span>
             <span className="text-gray-500">请在下方填写并保存 API 配置</span>
           </div>
         )}
@@ -340,9 +344,16 @@ export default function SettingsClient({
             <button
               onClick={handleTest}
               disabled={testing || !baseUrl.trim() || !testModel.trim()}
-              className="px-4 py-2 rounded-md bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
             >
-              {testing ? "测试中…" : "🔌 测试连接"}
+              {testing ? (
+                "测试中…"
+              ) : (
+                <>
+                  <IconPlug className="w-4 h-4" />
+                  测试连接
+                </>
+              )}
             </button>
           </div>
           {testResult && (
@@ -355,13 +366,19 @@ export default function SettingsClient({
               }
             >
               {testResult.ok ? (
-                <span>
-                  ✅ 连接成功 ({testResult.latency}ms) — 模型回复：
-                  <code className="ml-1 bg-white px-1 rounded">{testResult.response}</code>
+                <span className="flex items-start gap-1.5">
+                  <IconCheck className="w-3.5 h-3.5 mt-[1px] shrink-0" />
+                  <span>
+                    连接成功 ({testResult.latency}ms) — 模型回复：
+                    <code className="ml-1 bg-white px-1 rounded">{testResult.response}</code>
+                  </span>
                 </span>
               ) : (
-                <span>
-                  ❌ 连接失败{testResult.latency ? ` (${testResult.latency}ms)` : ""}：{testResult.error}
+                <span className="flex items-start gap-1.5">
+                  <IconX className="w-3.5 h-3.5 mt-[1px] shrink-0" />
+                  <span>
+                    连接失败{testResult.latency ? ` (${testResult.latency}ms)` : ""}：{testResult.error}
+                  </span>
                 </span>
               )}
             </div>
@@ -406,7 +423,7 @@ export default function SettingsClient({
       <section className="border rounded-lg p-4 bg-gray-50">
         <h2 className="text-sm font-semibold text-gray-800 mb-2">AI 分析补全功能说明</h2>
         <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
-          <li><b>触发条件：</b>分析结果含 <code className="bg-white px-1 rounded">人工补录 / OCR 识别 / 回退推导值</code> 字段时，详情页顶部出现「🤖 AI 分析补全」按钮</li>
+          <li><b>触发条件：</b>分析结果含 <code className="bg-white px-1 rounded">人工补录 / OCR 识别 / 回退推导值</code> 字段时，详情页顶部出现「AI 分析补全」按钮</li>
           <li><b>双路并行：</b>视觉 OCR（PDF→PNG→Vision 模型）+ 文本分析（PDF 全文→Text 模型）</li>
           <li><b>合并优先级：</b>OCR 结果 &gt; 文本分析 &gt; 会计推算</li>
           <li><b>用户确认：</b>AI 建议值以蓝色高亮填入输入框，用户核对后点击「保存修改」才会写入</li>

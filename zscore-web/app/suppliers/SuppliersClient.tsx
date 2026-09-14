@@ -4,6 +4,7 @@
 // 但 UI 字符串需要走 i18n。
 
 import SuppliersTable from "@/components/SuppliersTable";
+import { IconPackage } from "@/components/Icons";
 import { useI18n } from "@/lib/i18n";
 import type { SupplierSummary } from "@/lib/types";
 
@@ -14,7 +15,9 @@ export default function SuppliersClient({ suppliers }: { suppliers: SupplierSumm
       <h1 className="text-lg font-bold">{t.suppliersPage.title(suppliers.length)}</h1>
       {suppliers.length === 0 ? (
         <div className="text-sm text-gray-500 border rounded-lg p-6 text-center bg-gray-50">
-          <div className="text-3xl mb-2">📦</div>
+          <div className="mb-2 flex justify-center text-gray-400">
+            <IconPackage className="w-9 h-9" />
+          </div>
           <div className="font-medium text-gray-700 mb-1">{t.suppliersPage.emptyTitle}</div>
           <div className="text-xs text-gray-500">{t.suppliersPage.emptyHint}</div>
         </div>

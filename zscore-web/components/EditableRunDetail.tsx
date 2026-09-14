@@ -6,6 +6,7 @@ import RiskBadge from "./RiskBadge";
 import FactorBars from "./FactorBars";
 import EvidenceTable from "./EvidenceTable";
 import FactorDetailCard from "./FactorDetailCard";
+import { IconSpinner, IconRobot, IconBulb, IconWarn } from "./Icons";
 import {
   computeZ,
   zoneOf,
@@ -432,9 +433,13 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                       onClick={() => handleAiAnalyze(f.key)}
                       disabled={fieldLoading || aiAnalyzing}
                       title="AI 分析此字段"
-                      className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-wait"
+                      className="inline-flex items-center justify-center text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-wait"
                     >
-                      {fieldLoading ? "⏳" : "🤖"}
+                      {fieldLoading ? (
+                        <IconSpinner className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <IconRobot className="w-3.5 h-3.5" />
+                      )}
                     </button>
                   )}
                 </label>
@@ -457,13 +462,15 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                   <div className="mt-1 flex items-start gap-1.5">
                     <div className="flex-1 min-w-0">
                       {aiSug.evidence && (
-                        <div className="text-[10px] text-indigo-600/80 leading-tight">
-                          💡 {aiSug.evidence.slice(0, 100)}
+                        <div className="flex items-start gap-1 text-[10px] text-indigo-600/80 leading-tight">
+                          <IconBulb className="w-3 h-3 mt-[1px] shrink-0" />
+                          <span>{aiSug.evidence.slice(0, 100)}</span>
                         </div>
                       )}
                       {aiSug.warning && (
-                        <div className="text-[10px] text-red-600 font-medium leading-tight mt-0.5">
-                          ⚠ {aiSug.warning}
+                        <div className="flex items-start gap-1 text-[10px] text-red-600 font-medium leading-tight mt-0.5">
+                          <IconWarn className="w-3 h-3 mt-[1px] shrink-0" />
+                          <span>{aiSug.warning}</span>
                         </div>
                       )}
                       <div className="flex gap-1 mt-0.5">
