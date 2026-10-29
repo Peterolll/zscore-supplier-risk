@@ -30,7 +30,7 @@ _DEFAULT_SYNONYMS: dict[str, list[str]] = {
     "profit_before_tax": ["稅前淨利", "税前净利", "利润总额", "profit before tax", "pretax profit", "profit before taxation",
                           "期間溢利/(虧損)", "期间溢利/(亏损)", "溢利/(虧損)", "溢利/(亏损)", "除稅前溢利", "除税前溢利"],
     # 利息费用：CAS 优先匹配"其中：利息费用"嵌套子行
-    "interest_expense": ["其中：利息费用", "其中:利息费用", "利息費用", "利息费用", "interest expense", "interest paid"],
+    "interest_expense": ["其中：利息费用", "其中:利息费用", "利息費用", "利息费用", "利息支出", "利息支出（费用化）", "interest expense", "interest paid"],
     # 营业收入（流量，需年化）
     "revenue": ["營業收入淨額", "營業總收入", "營業收入", "营业总收入", "营业收入", "revenue", "turnover", "sales revenue", "total revenue",
                 "營業額", "营业额"],

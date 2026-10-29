@@ -13,6 +13,7 @@ const FIELD_LABELS: Record<string, string> = {
   retained_earnings: "留存收益 / Retained Earnings",
   revenue: "营业收入 / Revenue",
   profit_before_tax: "税前利润 / PBT",
+  finance_expenses: "财务费用 / Finance Expenses (reference)",
   interest_expense: "利息费用 / Interest Expense",
   ebit: "息税前利润(EBIT) / EBIT",
 };
@@ -27,6 +28,8 @@ export default function EvidenceTable({
     source_page: number | null;
     method: string;
     confidence: number;
+    provenance?: import("@/lib/types").SourceEvidence[];
+    dependencies?: string[];
   }[];
 }) {
   const { lang, t } = useI18n();
@@ -43,6 +46,7 @@ export default function EvidenceTable({
               <th className="text-right p-2 border">数值 / Value</th>
               <th className="text-left p-2 border">命中科目 / Matched Item</th>
               <th className="text-left p-2 border">页码 / Page</th>
+              <th className="text-left p-2 border">原数字 / 期间 / 单位 / 位置</th>
               <th className="text-left p-2 border">提取方式 / Method</th>
               <th className="text-left p-2 border">确认状态 / Status</th>
             </tr>
@@ -61,7 +65,13 @@ export default function EvidenceTable({
                       : f.value.toLocaleString(numLocale, { maximumFractionDigits: 2 })}
                   </td>
                   <td className="p-2 border text-gray-600">{f.evidence || "—"}</td>
-                  <td className="p-2 border">{f.source_page ?? "—"}</td>
+                  <td className="p-2 border">{f.source_page == null ? "—" : f.source_page+1}</td>
+                  <td className="p-2 border text-gray-600">{f.provenance?.length ? f.provenance.map((p,i)=><div key={i} className="mb-1">
+                    {p.raw_label}：{p.raw_value} · {p.period} / {p.column} · {p.unit}×{p.unit_scale}
+                    {p.formula && <div>公式缓存：{p.formula}</div>}
+                    <div>{p.sheet ? `${p.sheet}!${p.cell}` : `第${(p.page ?? 0)+1}页`} · 坐标({p.coordinate_space}): {p.bbox?.join(", ") ?? "未知"}</div>
+                  </div>) : "原始位置未知 / 人工值"}
+                  {f.dependencies?.length ? <div>推导依赖：{f.dependencies.join(" + ")}</div> : null}</td>
                   <td className="p-2 border text-gray-600">{f.method}</td>
                   <td className="p-2 border">
                     <span
@@ -85,7 +95,7 @@ export default function EvidenceTable({
         <span className="text-green-700 font-medium">{fs.confirmed}</span>=电子文本直提 / Electronic text direct hit;{" "}
         <span className="text-amber-700 font-medium">{fs.manual}</span>=人工填写 / Manual entry;{" "}
         <span className="text-amber-700 font-medium">{fs.ocrPending}</span>=图片识别 / OCR;{" "}
-        <span className="text-amber-700 font-medium">{fs.pending}</span>=回退/推导值 / Fallback/derived (e.g. missing subtotal, EBIT=PBT assumption).
+        <span className="text-amber-700 font-medium">{fs.pending}</span>=回退/推导值 / Fallback/derived (e.g. subtotal or EBIT calculated from complete inputs).
       </div>
     </div>
   );

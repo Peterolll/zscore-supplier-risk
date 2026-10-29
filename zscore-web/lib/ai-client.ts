@@ -11,7 +11,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { resolvePython, resolveWorkspace } from "./engine";
-import { getAiConfig } from "./ai-config";
+import { getAiConfig, apiUrl } from "./ai-config";
 import {
   buildUnifiedSystemPrompt,
   buildUnifiedUserPrompt,
@@ -76,10 +76,7 @@ export interface AiAnalyzeResult {
 
 /** 构建完整的 chat/completions URL */
 function buildChatUrl(baseUrl: string): string {
-  const base = baseUrl.replace(/\/+$/, "");
-  if (base.endsWith("/chat/completions")) return base;
-  if (base.endsWith("/v4") || base.endsWith("/v1")) return `${base}/chat/completions`;
-  return `${base}/v1/chat/completions`;
+  return apiUrl(baseUrl,"chat/completions");
 }
 
 function authHeaders(apiKey: string): Record<string, string> {

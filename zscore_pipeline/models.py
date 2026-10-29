@@ -5,6 +5,7 @@ models.py — 数据模型（pydantic v2）
 """
 from __future__ import annotations
 from enum import Enum
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -36,6 +37,8 @@ class ExtractMethod(str, Enum):
     GLM_OCR = "glm_ocr"        # GLM-4V-Flash 免费版 OCR
     MANUAL = "manual"          # 人工录入/修正覆盖（BS 数字补录入口）
     PPTX = "pptx"             # PPTX 表格/文本框直提（python-pptx）
+    EXCEL = "excel"
+    AI_ANALYSIS = "ai_analyze"
     DERIVED = "derived"        # 三级兜底推导：子指标求和(L2) / 会计恒等式反推(L3)
 
 
@@ -45,6 +48,8 @@ class FieldValue(BaseModel):
     method: ExtractMethod = ExtractMethod.PDFPLUMBER
     source_page: int | None = None
     evidence: str = ""          # 命中的原始科目名
+    provenance: list[dict] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
     confidence: float = 1.0     # 1.0 词典命中 / <1.0 规则推断或 LLM 兜底
 
 
@@ -54,6 +59,7 @@ class SupplierProfile(BaseModel):
     industry_class: IndustryClass
     period_type: PeriodType
     gaap: Gaap
+    flow_basis: Literal["ytd", "quarter"] = "ytd"
     currency: str = "CNY"
     source_file: str = ""
     note: str = ""
@@ -69,6 +75,10 @@ class ExtractionResult(BaseModel):
     unit_scale: float = 1.0     # 报表计量单位换算（千元/万元 → 元）
     warnings: list[str] = Field(default_factory=list)
     # 字典自审闭环：未识别科目（match_field/match_component 均未命中的带数字行）
+    trace_id: str | None = None
+    candidates: list[dict] = Field(default_factory=list)
+    unextracted: list[dict] = Field(default_factory=list)
+    sheet_summary: list[dict] = Field(default_factory=list)
     dict_gaps: list[dict] = Field(default_factory=list)
 
 

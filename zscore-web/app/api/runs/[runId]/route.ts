@@ -27,27 +27,31 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: "BAD_JSON" }, { status: 400 });
   }
   try {
-    // 清洗 fields：仅保留数值（含 0），剔除空串/NaN
-    const fields: Record<string, number | null> | undefined = body.fields
-      ? Object.fromEntries(
-          Object.entries(body.fields as Record<string, unknown>)
-            .filter(([, v]) => v !== "" && v !== null && v !== undefined && !Number.isNaN(Number(v)))
-            .map(([k, v]) => [k, Number(v)])
-        )
-      : undefined;
+    const allowed = new Set(["current_assets","current_liabilities","total_assets","total_liabilities","equity_total","equity_value","retained_earnings","revenue","profit_before_tax","interest_expense","ebit","finance_expenses","net_profit","income_tax","noncurrent_assets","noncurrent_liabilities","surplus_reserve","undistributed_profit"]);
+    const fields: Record<string, number | null> = {};
+    for (const [key,value] of Object.entries(body.fields ?? {})) {
+      if (!allowed.has(key) || (value !== null && (typeof value !== "number" || !Number.isFinite(value))))
+        return NextResponse.json({ok:false,error:"INVALID_FIELD"},{status:400});
+      fields[key] = value as number | null;
+    }
+    if ((body.equityValue != null && (typeof body.equityValue !== "number" || !Number.isFinite(body.equityValue))) ||
+        (body.industry !== undefined && !["manufacturing","service"].includes(body.industry)) ||
+        (body.riskOverride != null && !["safe","grey","distress","unknown"].includes(body.riskOverride)))
+      return NextResponse.json({ok:false,error:"INVALID_INPUT"},{status:400});
     saveResultOverride(runId, {
       fields,
-      riskOverride: (body.riskOverride ?? null) as RiskZone | null,
+      acceptedSuggestions: body.acceptedSuggestions,
+      riskOverride: body.riskOverride as RiskZone | null | undefined,
       note: body.note,
       industry: body.industry as Industry | undefined,
       listed: typeof body.listed === "boolean" ? body.listed : undefined,
-      equityValue: body.equityValue != null ? Number(body.equityValue) : undefined,
+      equityValue: body.equityValue,
     });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message || "SAVE_FAILED" },
-      { status: 500 }
+      { ok: false, error: e?.message || "SAVE_FAILED", message: e?.message === "STALE_SUGGESTION" ? "字段已发生变化，请重新核验后再保存" : "保存失败，请查看分析日志" },
+      { status: e?.message === "STALE_SUGGESTION" ? 409 : 500 }
     );
   }
 }

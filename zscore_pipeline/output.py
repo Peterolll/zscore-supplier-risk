@@ -81,7 +81,7 @@ def write_html(results: list[dict], path: Path):
         ext: ExtractionResult = r["extraction"]
         p = r["profile"]
         fld = "".join(
-            f"<li><b>{k}</b>: {v.value:,.2f} <span class='ev'>[{v.evidence} · p{v.source_page} · {v.method.value}]</span></li>"
+            f"<li><b>{k}</b>: {_fmt(v.value)} <span class='ev'>[{v.evidence} · p{v.source_page} · {v.method.value}]</span></li>"
             for k, v in ext.fields.items())
         gates = " ".join(f"<span class='ok'>{g}</span>" for g in z.gates_passed)
         if z.gates_failed:
@@ -89,7 +89,7 @@ def write_html(results: list[dict], path: Path):
         rows.append(f"""
         <div class="card">
           <h2>{p.name} <small>{z.model} · {z.risk_zone}</small></h2>
-          <div class="z">Z = {z.z_score:.4f} {'(流量年化×'+str(z.annualize_factor)+')' if z.annualized else ''}</div>
+          <div class="z">Z = {_fmt(z.z_score)} {'(流量年化×'+str(z.annualize_factor)+')' if z.annualized else ''}</div>
           <div class="xs">X1={_fmt(z.X1)} X2={_fmt(z.X2)} X3={_fmt(z.X3)} X4={_fmt(z.X4)} X5={_fmt(z.X5)}</div>
           <ul class="flds">{fld}</ul>
           <div class="gates">闸门: {gates}</div>

@@ -10,23 +10,34 @@ v2 架构（2026-08-19）：
                  conf=0.7，method=derived，标注「推算待确认」
   兜底 null      → warnings + Web 端人工补录
 
-前置 sanitize（OCR 防误抓）：
-  纯整数值 ∈ [1,999] 且同报表存在 >=10 万量级值 → 判为「序号/行次」列误抓，剔除。
+候选选择：合并口径 → 主表 → 表格通道 → 最早页。
+保留真实小额金额；行号列由表头定位排除，不按金额大小过滤。
 
-流量字段（revenue / profit_before_tax / interest_expense）仍走 pick（最晚页 + table 优先）。
 EBIT 决策树：
-  EBIT = 利润总额(PBT) + 利息费用（有利息 → conf 1.0；无利息 → EBIT=PBT conf 0.9）
+  原文明示优先；否则 PBT+利息，或净利润+所得税+利息。无利息时不以财务费用替代。
 """
 from __future__ import annotations
+import math
+import re
+import hashlib
+import json
+from .evidence import source_of
+from .audit import event
 from .m2_extract import LineItem
 from .synonym import normalize, FIELD_TREE, match_field, match_component
 from .models import ExtractionResult, FieldValue, ExtractMethod, Gaap, SupplierProfile
 
 _BS_FIELDS = ["current_assets", "current_liabilities", "equity_total",
               "retained_earnings", "total_assets", "total_liabilities"]
-_FLOW_FIELDS = ["revenue", "profit_before_tax", "interest_expense"]
+_FLOW_FIELDS = ["revenue", "profit_before_tax", "interest_expense", "net_profit", "income_tax", "noncurrent_assets", "noncurrent_liabilities", "surplus_reserve", "undistributed_profit", "finance_expenses", "ebit"]
+_AUX = {"净利润":"net_profit","四净利润":"net_profit","所得税费用":"income_tax","减所得税费用":"income_tax","非流动资产合计":"noncurrent_assets","非流动负债合计":"noncurrent_liabilities","财务费用":"finance_expenses","財務費用":"finance_expenses","息税前利润":"ebit","息稅前利潤":"ebit","ebit":"ebit","息税前利润（ebit）":"ebit","息税前利润(ebit)":"ebit","盈余公积":"surplus_reserve","未分配利润":"undistributed_profit"}
 _LIAB_FIELDS = {"current_liabilities", "total_liabilities"}
 _SUBTOTAL_KW = ["合计", "總計", "总计", "total", "subtotal", "合計"]
+
+
+def canonical_field(label: str) -> str | None:
+    aux=normalize(label)
+    return _AUX.get(aux) or ('net_profit' if re.match(r'^(?:四)?净利润',aux) else 'income_tax' if re.match(r'^(?:减)?所得税费用',aux) else None) or match_field(label)
 
 
 def parse_number(s: str, scale: float = 1.0) -> float | None:
@@ -44,7 +55,11 @@ def parse_number(s: str, scale: float = 1.0) -> float | None:
         v = float(s)
     except ValueError:
         return None
+    if not math.isfinite(v):
+        return None
     v *= scale
+    if not math.isfinite(v):
+        return None
     return -v if neg else v
 
 
@@ -52,48 +67,51 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
             gaap: Gaap, scale: float, profile_name: str,
             method: ExtractMethod) -> ExtractionResult:
     warnings: list[str] = []
+    years=[int(y) for item in line_items for y in re.findall(r'(?<!\d)(20\d{2})(?!\d)',item.period or '')]
+    target_year=max(years) if years else None
+    def dates(item):
+        return [tuple(map(int,m)) for m in re.findall(r'(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})',(item.period or '')+' '+(item.column or ''))]
+    observed_dates=[d for item in line_items for d in dates(item)]
+    target_date=max(observed_dates) if observed_dates else None
 
     # ---- 0) 双通道候选收集：direct（小计） + component（子指标） ----
+    candidates: list[dict] = []
     cand_direct: dict[str, list] = {}
     cand_comp: dict[tuple[str, str], list] = {}
     for it in line_items:
-        v = parse_number(it.raw_value, scale)
+        if target_date and dates(it) and max(dates(it))!=target_date:
+            event('mapping.period_excluded',label=it.label,period=it.period,target_date=target_date)
+            continue
+        years_in_period=[int(y) for y in re.findall(r'(?<!\d)(20\d{2})(?!\d)',it.period or '')]
+        if target_year and years_in_period and max(years_in_period)!=target_year:
+            event('mapping.period_excluded',label=it.label,period=it.period,target_year=target_year)
+            continue
+        v = parse_number(it.raw_value, it.unit_scale if it.unit_scale is not None else scale)
+        if it.unit_unknown:
+            warnings.append(f"第 {it.page + 1} 页单位未确认，{it.label} 待人工补录")
+            continue
         if v is None:
             continue
-        f = match_field(it.label)
+        f = canonical_field(it.label)
+        evidence = source_of(it)
+        evidence['id'] = hashlib.sha256(json.dumps(evidence,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:24]
+        candidates.append({**evidence,'field_key':f,'value':v})
         if f:
-            cand_direct.setdefault(f, []).append((v, it.page, it.label, it.method, it.source))
+            cand_direct.setdefault(f, []).append((v, it.page, it.label, it.method, it.source, it.statement, evidence))
         for ff, cc in match_component(it.label):
-            cand_comp.setdefault((ff, cc), []).append((v, it.page, it.label, it.method, it.source))
+            cand_comp.setdefault((ff, cc), []).append((v, it.page, it.label, it.method, it.source, it.statement, evidence))
 
-    # ---- 1) sanitize：序号/行次列防误抓 ----
-    all_vals = [x[0] for lst in list(cand_direct.values()) + list(cand_comp.values()) for x in lst]
-    has_big = any(abs(v) >= 100_000 for v in all_vals)
-
-    def is_rownum(v: float) -> bool:
-        return has_big and float(v) == int(v) and 1 <= v <= 999
-
-    dropped = 0
-    for d in (cand_direct, cand_comp):
-        for k in list(d.keys()):
-            kept = [x for x in d[k] if not is_rownum(x[0])]
-            dropped += len(d[k]) - len(kept)
-            if kept:
-                d[k] = kept
-            else:
-                del d[k]
-    if dropped:
-        warnings.append(f"序号防误抓：剔除 {dropped} 个疑似行号候选（纯整数 1-999）")
-
-    # ---- 候选预处理：table 优先（双列报表本期列）→ 合并口径 → 去重 → 按页排序 ----
+    # Scope and statement identity take precedence over extraction channel.
     def _prep(lst: list) -> list:
+        if consolidated_pages:
+            c = [x for x in lst if x[1] in consolidated_pages]
+            lst = c
+        statements = [x for x in lst if x[5]]
+        if statements:
+            lst = statements
         table_lst = [x for x in lst if x[4] == "table"]
         if table_lst:
             lst = table_lst
-        if consolidated_pages:
-            c = [x for x in lst if x[1] in consolidated_pages]
-            if c:
-                lst = c
         seen: set = set()
         dedup = []
         for x in lst:
@@ -106,14 +124,14 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
         return dedup
 
     def pick(field: str):
-        """流量字段：单值选择（最晚页候选）。"""
+        """流量字段：单值选择（最早主表候选）。"""
         lst = _prep(cand_direct.get(field, []))
-        return lst[-1] if lst else None
+        return lst[0] if lst else None
 
     def comp_value(field: str, comp: str) -> float | None:
-        """某字段某子指标的代表值（最晚页候选）。"""
+        """某字段某子指标的代表值（最早主表候选）。"""
         lst = _prep(cand_comp.get((field, comp), []))
-        return lst[-1][0] if lst else None
+        return lst[0][0] if lst else None
 
     # ---- 2) 存量字段 L1 + L2 ----
     def resolve_bs(field: str) -> tuple[FieldValue, str] | tuple[None, None]:
@@ -124,7 +142,7 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
                 continue
             prepped = _prep(cand_comp[(ff, cc)])
             if prepped:
-                rep = prepped[-1]
+                rep = prepped[0]
                 comp_vals[cc] = (rep[0], rep[2])
 
         # TA/TL 的「流动部分」组件回退：引用已解析的 CA/CL（先解析 CA/CL，后 TA/TL）
@@ -138,23 +156,24 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
         max_comp = max((v for v, _ in comp_vals.values()), default=None)
 
         # L1：direct 直抓（v2 字典中 SYNONYMS 仅含字段本体行，明细已移入组件树，
-        #     故 direct 命中即目标行，取最晚页候选；不再要求「合计」关键词）
+        #     故 direct 命中即目标行，取最早主表候选；不再要求「合计」关键词）
         lst = _prep(cand_direct.get(field, []))
         if lst:
-            s = lst[-1]
+            s = lst[0]
             if max_comp is not None and s[0] < max_comp:
                 warnings.append(
                     f"{field} 直抓值({s[0]:,.2f}) < 明细分量({max_comp:,.2f})，疑抓错列，改用明细求和")
             else:
                 val = s[0]
-                if field in _LIAB_FIELDS and val < 0:
-                    val = -val
-                    warnings.append(f"{field} 原始为负（信贷列示），取绝对值为负债")
                 return FieldValue(value=val, method=s[3], source_page=s[1],
-                                  evidence=s[2], confidence=1.0), "L1"
+                                  evidence=s[2], provenance=[s[6]], dependencies=["excel_formula"] if s[6].get("formula") else [], confidence=0.85 if s[3] == ExtractMethod.GLM_OCR or not s[6].get("bbox") or s[6].get("formula") else 1.0), "L1"
 
         # L2：子指标求和
         if comp_vals:
+            # Incomplete retained-earnings components must not silently become a full value.
+            if field == 'retained_earnings' and len(comp_vals) < len(comp_def):
+                warnings.append('留存收益组件不完整；空白盈余公积不是已确认的0')
+                return None, None
             total = sum(v for v, _ in comp_vals.values())
             cov = len(comp_vals) / max(len(comp_def), 1)
             ev = " + ".join(f"{lab}({v:,.2f})" for v, lab in comp_vals.values())
@@ -166,7 +185,9 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
             if cov < 0.5:
                 warnings.append(f"{field} 明细覆盖率 {cov:.0%}，求和可能低估，请人工核对")
             return FieldValue(value=total, method=ExtractMethod.DERIVED, source_page=None,
-                              evidence=ev + note, confidence=conf), "L2"
+                              evidence=ev + note, confidence=conf,
+                              provenance=[c for c in candidates if any(ff==field for ff,cc in match_component(c['raw_label']))],
+                              dependencies=list(comp_vals)), "L2"
         return None, None
 
     fields: dict[str, FieldValue] = {}
@@ -184,7 +205,9 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
     def derive(field: str, value: float, evidence: str, conf: float = 0.7):
         fields[field] = FieldValue(value=value, method=ExtractMethod.DERIVED,
                                    source_page=None, evidence=evidence + "（恒等式推算，待确认）",
-                                   confidence=conf)
+                                   confidence=conf,
+                                   dependencies=['total_liabilities','equity_total'] if field=='total_assets' else ['total_assets','equity_total'] if field=='total_liabilities' else ['total_assets','total_liabilities'] if field=='equity_total' else ['total_liabilities','noncurrent_liabilities'] if field=='current_liabilities' else ['total_assets','noncurrent_assets'],
+                                   provenance=[c for c in candidates if c['field_key'] in ['total_assets','total_liabilities','equity_total','noncurrent_assets','noncurrent_liabilities']])
         level_log[field] = "L3"
         warnings.append(f"{field} 未直接抓到，已按会计恒等式推算（conf={conf}），请核对")
 
@@ -202,9 +225,6 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
         if ncl is not None:
             derive("current_liabilities", tl - ncl,
                    f"TL({tl:,.2f}) − 非流动负债合计({ncl:,.2f})")
-        else:
-            derive("current_liabilities", tl,
-                   f"TL({tl:,.2f})（无非流动负债明细，假设非流动负债=0）", conf=0.6)
 
     ta = val("total_assets")
     if val("current_assets") is None and ta is not None:
@@ -218,24 +238,21 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
         r = pick(fld)
         if r:
             fields[fld] = FieldValue(value=r[0], method=r[3], source_page=r[1],
-                                     evidence=r[2], confidence=1.0)
+                                     evidence=r[2], provenance=[r[6]], dependencies=["excel_formula"] if r[6].get("formula") else [], confidence=0.85 if r[3] == ExtractMethod.GLM_OCR or not r[6].get("bbox") or r[6].get("formula") else 1.0)
 
-    # ---- 5) EBIT 推导 ----
-    pbt = fields.get("profit_before_tax")
-    int_exp = fields.get("interest_expense")
-    if pbt and pbt.value is not None:
-        ebit_val = pbt.value
-        if int_exp and int_exp.value is not None:
-            ebit_val = pbt.value + int_exp.value
-            evidence = f"{pbt.evidence}(PBT) + {int_exp.evidence}(利息)"
-            ebit_conf = 1.0
-        else:
-            evidence = f"{pbt.evidence}(PBT, 无利息费用→EBIT=PBT)"
-            warnings.append("未检测到利息费用，按 EBIT=PBT 处理（疑似无有息负债），该 EBIT 为假设值")
-            ebit_conf = 0.9
-        fields["ebit"] = FieldValue(value=ebit_val, method=ExtractMethod.PDFPLUMBER,
-                                    source_page=pbt.source_page, evidence=evidence,
-                                    confidence=ebit_conf)
+    # ---- 5) EBIT: reported value first, then complete, evidenced accounting inputs. ----
+    if 'ebit' not in fields:
+        routes=[['profit_before_tax','interest_expense'],['net_profit','income_tax','interest_expense']]
+        for parts in routes:
+            if all(k in fields and fields[k].value is not None for k in parts):
+                refs=[fields[k] for k in parts]
+                fields['ebit']=FieldValue(value=sum(f.value for f in refs),method=ExtractMethod.DERIVED,
+                    source_page=refs[0].source_page,evidence=' + '.join(f.evidence for f in refs),
+                    confidence=min(f.confidence for f in refs),dependencies=parts,
+                    provenance=[p for f in refs for p in f.provenance])
+                break
+        if 'ebit' not in fields:
+            warnings.append('EBIT缺少完整推导依据：需要税前利润+利息费用，或净利润+所得税费用+利息费用；财务费用不能直接替代利息费用')
 
     if level_log:
         warnings.append("抓取分级：" + ", ".join(f"{k}={v}" for k, v in sorted(level_log.items())))
@@ -247,10 +264,10 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
     for it in line_items:
         if it.label in seen_labels:
             continue
-        v = parse_number(it.raw_value, scale)
-        if v is None or is_rownum(v):
+        v = parse_number(it.raw_value, it.unit_scale if it.unit_scale is not None else scale)
+        if v is None or it.unit_unknown:
             continue
-        if match_field(it.label) or match_component(it.label):
+        if canonical_field(it.label) or match_component(it.label):
             continue
         n_lab = normalize(it.label)
         # 排除二级明细（其中:原材料）、附注引用、比率类
@@ -265,7 +282,8 @@ def resolve(line_items: list[LineItem], consolidated_pages: set[int],
         if len(gaps) >= 30:
             break
 
+    event("mapping.completed",fields={k:v.model_dump() for k,v in fields.items()},candidates=len(candidates),warnings=warnings)
     return ExtractionResult(
         profile_name=profile_name, method=method,
         fields=fields, unit_scale=scale, warnings=warnings,
-        dict_gaps=gaps)
+        dict_gaps=gaps, candidates=candidates)

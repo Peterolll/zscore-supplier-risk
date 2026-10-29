@@ -20,8 +20,10 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from .models import ExtractMethod
+from .m2_extract import table_items, attach_page_metadata, finalize_units
 from .m2_extract import LineItem, _is_numeric, _extract_text_lines, _parse_ocr_text, detect_unit_scale
 from .config import GLM_OCR
+from .audit import event
 
 
 def _safe_iter_shapes(slide):
@@ -48,23 +50,12 @@ def _extract_pptx_tables(slide, slide_no: int, method: ExtractMethod) -> list[Li
             tbl = shape.table
         except Exception:
             continue
-        for row in tbl.rows:
-            cells = []
-            for cell in row.cells:
-                txt = cell.text.strip() if cell.text else ""
-                if txt:
-                    cells.append(txt)
-            if len(cells) < 2:
-                continue
-            label = cells[0]
-            # 双列报表 [label, 本期, 上期] → 取本期(cells[1])；单列 [label, value]
-            val = None
-            if _is_numeric(cells[1]):
-                val = cells[1]
-            elif _is_numeric(cells[-1]):
-                val = cells[-1]
-            if val:
-                items.append(LineItem(label, val, slide_no, method, "table"))
+        extracted=table_items([[cell.text for cell in row.cells] for row in tbl.rows], slide_no, method)
+        for item in extracted:
+            item.bbox=[shape.left,shape.top,shape.left+shape.width,shape.top+shape.height]
+            item.coordinate_space='pptx_emu'
+            item.cell='表格：'+item.label
+        items += extracted
     return items
 
 
@@ -89,7 +80,11 @@ def _extract_pptx_text(slide, slide_no: int, method: ExtractMethod) -> list[Line
             continue
         if not text:
             continue
-        items += _extract_text_lines(text, slide_no, method)
+        extracted=_extract_text_lines(text,slide_no,method)
+        for item in extracted:
+            item.bbox=[shape.left,shape.top,shape.left+shape.width,shape.top+shape.height]
+            item.coordinate_space='pptx_emu'
+        items += extracted
     return items
 
 
@@ -155,18 +150,9 @@ def _collect_slide_text(slide) -> str:
 
 def detect_pptx_consolidated_slides(pptx_path: str | Path) -> set[int]:
     """返回"合并报表"相关 slide 页码集合（优先口径）。"""
-    cons: set[int] = set()
-    in_cons = False
+    from .m3_locate import consolidated_pages_from_texts
     prs = Presentation(str(pptx_path))
-    for i, slide in enumerate(prs.slides):
-        all_text = _collect_slide_text(slide)
-        if any(k in all_text for k in _PARENT_KW):
-            in_cons = False
-        if any(k in all_text for k in _CONS_KW):
-            in_cons = True
-        if in_cons:
-            cons.add(i)
-    return cons
+    return consolidated_pages_from_texts([_collect_slide_text(slide) for slide in prs.slides])
 
 
 def detect_pptx_unit_scale(pptx_path: str | Path) -> float:
@@ -174,7 +160,7 @@ def detect_pptx_unit_scale(pptx_path: str | Path) -> float:
     prs = Presentation(str(pptx_path))
     text = ""
     slides = list(prs.slides)
-    for slide in slides[:10]:
+    for slide in slides:
         text += _collect_slide_text(slide) + " "
     return detect_unit_scale(text)
 
@@ -195,12 +181,15 @@ def extract_pptx(pptx_path: str | Path) -> tuple[list[LineItem], ExtractMethod, 
 
     prs = Presentation(pptx_path)
     for i, slide in enumerate(prs.slides):
-        # 先提取表格（优先级高）
-        items += _extract_pptx_tables(slide, i, ExtractMethod.PPTX)
-        # 再提取文本框
-        items += _extract_pptx_text(slide, i, ExtractMethod.PPTX)
-        text_len += len(_collect_slide_text(slide))
+        text = _collect_slide_text(slide)
+        page_items = _extract_pptx_tables(slide, i, ExtractMethod.PPTX)
+        page_items += _extract_pptx_text(slide, i, ExtractMethod.PPTX)
+        attach_page_metadata(page_items, text)
+        for item in page_items:item.source_file=str(Path(pptx_path).resolve())
+        items += page_items
+        text_len += len(text)
 
+    finalize_units(items)
     # 判断电子文本是否足够
     joined = " ".join(it.label for it in items)
     electronic_enough = text_len > 300 and any(k in joined.lower() for k in _FS_KW)
@@ -215,34 +204,15 @@ def extract_pptx(pptx_path: str | Path) -> tuple[list[LineItem], ExtractMethod, 
             f"图片型 PPTX 需 GLM-4V-Flash OCR，但 GLM_API_KEY 未设置：{pptx_path}"
         )
 
-    from .ocr_glm import _call_glm
-
-    # 提取所有图片到临时目录
-    tmp_dir = tempfile.mkdtemp(prefix="pptx_images_")
-    image_paths = []
-    for i, slide in enumerate(prs.slides):
-        image_paths += _extract_pptx_images(slide, i, tmp_dir)
-
-    if not image_paths:
-        # 没有图片也没有足够文本 → 空结果
-        return items, ExtractMethod.PPTX, text_len
-
-    # 逐张图片 OCR
-    all_ocr_text = []
-    for img_path in image_paths:
-        try:
-            ocr_text = _call_glm(img_path, GLM_OCR["ocr_prompt"])
-            all_ocr_text.append(ocr_text)
-        except Exception:
-            pass  # 跳过单张 OCR 失败
-
-    # 合并 OCR 文本并解析
-    combined_ocr = "\n".join(all_ocr_text)
-    ocr_items = _parse_ocr_text(combined_ocr)
-
-    if not ocr_items:
-        # OCR 也没提取到 → 返回电子文本结果（可能有一些标签但不足）
-        return items, ExtractMethod.PPTX, text_len
-
-    # OCR 结果优先于电子文本
-    return ocr_items, ExtractMethod.GLM_OCR, len(combined_ocr)
+    from .vision import extract_image
+    from PIL import Image
+    with tempfile.TemporaryDirectory(prefix='pptx_images_') as tmp:
+        directory=Path(tmp)
+        ocr_items=[]
+        for i,slide in enumerate(prs.slides):
+            for image_path in _extract_pptx_images(slide,i,tmp):
+                try:
+                    with Image.open(image_path) as src:image=src.convert('RGB')
+                    ocr_items+=extract_image(image,directory,i,str(Path(pptx_path).resolve()))
+                except Exception as exc:event('pptx.image_failed',page=i,message=str(exc)[:300])
+        return (ocr_items,ExtractMethod.GLM_OCR,sum(len(it.raw_value) for it in ocr_items)) if ocr_items else (items,ExtractMethod.PPTX,text_len)

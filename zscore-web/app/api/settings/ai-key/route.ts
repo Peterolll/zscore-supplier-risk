@@ -10,6 +10,7 @@ import {
   saveAiConfig,
   getAiConfig,
   PROVIDER_PRESETS,
+  visionModelFor, validateTextModel,
 } from "@/lib/ai-config";
 
 export const runtime = "nodejs";
@@ -50,7 +51,9 @@ export async function POST(req: Request) {
     body.text_model = body.text_model || preset.text_model;
   }
 
-  const apiKey = (body.api_key as string) || "";
+  const current=getAiConfig();
+  const sameEndpoint=!body.base_url || body.base_url.trim()===current.base_url;
+  const apiKey = (body.api_key as string) || (sameEndpoint ? current.api_key : "");
   if (!apiKey.trim()) {
     return NextResponse.json({ ok: false, error: "EMPTY_KEY" }, { status: 400 });
   }
@@ -68,8 +71,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "EMPTY_BASE_URL" }, { status: 400 });
   }
 
-  const visionModel = (body.vision_model as string)?.trim() || preset.vision_model;
+  const visionModel = visionModelFor(baseUrl);
   const textModel = (body.text_model as string)?.trim() || preset.text_model;
+
+  try { await validateTextModel({provider,base_url:baseUrl,api_key:trimmedKey,vision_model:visionModel,text_model:textModel}); }
+  catch(error) { return NextResponse.json({ok:false,error:"INVALID_MODEL",message:error instanceof Error ? error.message : "模型校验失败"},{status:400}); }
 
   saveAiConfig({
     provider,

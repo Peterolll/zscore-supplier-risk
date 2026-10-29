@@ -18,6 +18,8 @@
 // }
 
 import fs from "node:fs";
+import { visionModelFor, apiUrl } from "./ai-endpoints";
+export { visionModelFor, apiUrl } from "./ai-endpoints";
 import path from "node:path";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -31,7 +33,7 @@ export const PROVIDER_PRESETS: Record<
   zhipu: {
     label: "智谱 GLM",
     base_url: "https://open.bigmodel.cn/api/paas/v4",
-    vision_model: "glm-4v-flash",
+    vision_model: visionModelFor("https://open.bigmodel.cn/api/paas/v4"),
     text_model: "glm-4-flash",
     doc_url: "https://open.bigmodel.cn/usercenter/apikeys",
   },
@@ -72,6 +74,7 @@ export interface AiConfig {
   vision_model: string;
   text_model: string;
   updated_at?: string;
+  model_catalog?: { ids: string[]; source: "api" | "user"; updated_at: string };
 }
 
 /** 旧格式兼容：{ zhipu_api_key: "xxx" } → 新格式 */
@@ -109,7 +112,6 @@ export function getAiConfig(): AiConfig {
   // 1. 环境变量覆盖
   const envKey = process.env.ZSCORE_AI_API_KEY;
   const envBaseUrl = process.env.ZSCORE_AI_BASE_URL;
-  const envVision = process.env.ZSCORE_AI_VISION_MODEL;
   const envText = process.env.ZSCORE_AI_TEXT_MODEL;
 
   if (envKey && envKey.trim()) {
@@ -118,7 +120,7 @@ export function getAiConfig(): AiConfig {
       provider: "env",
       base_url: baseUrl,
       api_key: envKey.trim(),
-      vision_model: envVision?.trim() || PROVIDER_PRESETS.zhipu.vision_model,
+      vision_model: visionModelFor(baseUrl),
       text_model: envText?.trim() || PROVIDER_PRESETS.zhipu.text_model,
       updated_at: new Date().toISOString(),
     };
@@ -127,7 +129,7 @@ export function getAiConfig(): AiConfig {
   // 2. 配置文件
   const cfg = readConfigFile();
   if (cfg && cfg.api_key?.trim()) {
-    return cfg;
+    return { ...cfg, vision_model: visionModelFor(cfg.base_url) };
   }
 
   // 3. 未配置
@@ -167,6 +169,9 @@ export function saveAiConfig(cfg: Partial<AiConfig>): void {
     vision_model: cfg.vision_model ?? current?.vision_model ?? PROVIDER_PRESETS.zhipu.vision_model,
     text_model: cfg.text_model ?? current?.text_model ?? PROVIDER_PRESETS.zhipu.text_model,
     updated_at: new Date().toISOString(),
+    model_catalog: cfg.model_catalog ?? (
+      (cfg.api_key === undefined || cfg.api_key === current?.api_key) &&
+      (cfg.base_url === undefined || cfg.base_url === current?.base_url) ? current?.model_catalog : undefined),
   };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), "utf-8");
 }
@@ -198,6 +203,7 @@ export function getMaskedConfig(): {
   text_model: string;
   masked_key: string;
   configured: boolean;
+  available_models: string[];
 } {
   const cfg = getAiConfig();
   return {
@@ -207,5 +213,27 @@ export function getMaskedConfig(): {
     text_model: cfg.text_model,
     masked_key: maskKey(cfg.api_key),
     configured: cfg.api_key.length > 0,
+    available_models: cfg.model_catalog?.ids ?? [],
   };
+}
+
+export async function listAvailableModels(cfg: Pick<AiConfig,"base_url"|"api_key"> = getAiConfig()): Promise<string[]> {
+  const response=await fetch(apiUrl(cfg.base_url,"models"),{
+    headers:{Authorization:`Bearer ${cfg.api_key}`},signal:AbortSignal.timeout(30000),cache:"no-store",
+  });
+  if(!response.ok) throw new Error(`模型列表获取失败：HTTP ${response.status}`);
+  const data=await response.json();
+  const ids: string[]=Array.isArray(data?.data) ? data.data.flatMap((m: {id?:unknown})=>typeof m.id==="string"?[m.id]:[]) : [];
+  if(!ids.length)throw new Error("当前 Key 未返回可用模型，请检查端点和权限");
+  return [...new Set(ids)].sort();
+}
+export async function validateTextModel(cfg: AiConfig): Promise<void> {
+  let ids: string[];
+  try {ids=await listAvailableModels(cfg);}
+  catch(error) {
+    // Only network outages may use the explicitly saved catalog for this same key/endpoint.
+    if(!cfg.model_catalog || !(error instanceof TypeError || (error instanceof Error && ["TimeoutError","AbortError"].includes(error.name))))throw error;
+    ids=cfg.model_catalog.ids;
+  }
+  if(!ids.includes(cfg.text_model))throw new Error(`文本模型 ${cfg.text_model} 不在当前 Key 的可用列表中，请在设置页读取模型列表并选择`);
 }

@@ -8,6 +8,8 @@ ocr_glm.py — GLM-4V-Flash 免费版 OCR 适配器（扫描件通道）
 from __future__ import annotations
 import base64
 import json
+import time
+from .audit import event
 import shutil
 import tempfile
 import urllib.request
@@ -57,6 +59,8 @@ def _call_glm(image_path: str | Path, prompt: str) -> str:
     b64 = base64.b64encode(Path(image_path).read_bytes()).decode()
     payload = {
         "model": GLM_OCR["model"],
+        "temperature": 0,
+        "max_tokens": 1024,
         "messages": [
             {
                 "role": "user",
@@ -72,9 +76,26 @@ def _call_glm(image_path: str | Path, prompt: str) -> str:
         data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {GLM_OCR['api_key']}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode())
-    return data["choices"][0]["message"]["content"]
+    for attempt in range(2):
+        try:
+            event('vision.request',model=GLM_OCR['model'],attempt=attempt+1,image=str(image_path))
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                data = json.loads(resp.read().decode())
+            content=data["choices"][0]["message"]["content"]
+            event('vision.completed',model=GLM_OCR['model'],raw_response=content,finish_reason=data['choices'][0].get('finish_reason'))
+            return content
+        except Exception as exc:
+            # Authentication/invalid-model errors must not be retried as image failures.
+            from urllib.error import HTTPError
+            if isinstance(exc,HTTPError) and exc.code not in [408,429,500,502,503,504]:
+                response=exc.read().decode('utf-8',errors='replace')[:2000]
+                response=response.replace(GLM_OCR['api_key'],'[REDACTED]') if GLM_OCR['api_key'] else response
+                event('vision.http_error',status=exc.code,model=GLM_OCR['model'],response=response)
+                raise OCRUnavailable(f"GLM-4V-Flash 请求失败 HTTP {exc.code}，请查看分析日志确认端点和模型权限") from exc
+            if attempt:raise
+            event('vision.retry',reason='network',error=type(exc).__name__)
+            time.sleep(.25)
+    raise OCRUnavailable('视觉请求失败')
 
 
 def ocr_pdf_via_glm(pdf_path: str | Path) -> str:
@@ -85,9 +106,9 @@ def ocr_pdf_via_glm(pdf_path: str | Path) -> str:
     with tempfile.TemporaryDirectory(prefix="zscore_ocr_") as tmpdir:
         pages = _render_pages(pdf_path, out_dir=Path(tmpdir))
         chunks = []
-        for p in pages:
+        for page_no, p in enumerate(pages):
             try:
-                chunks.append(_call_glm(p, GLM_OCR["ocr_prompt"]))
+                chunks.append(f"[PAGE {page_no}]\n" + _call_glm(p, GLM_OCR["ocr_prompt"]))
             except Exception as e:  # noqa: BLE001
                 chunks.append(f"[OCR_ERROR {p.name}: {e}]")
         return "\n".join(chunks)

@@ -16,7 +16,7 @@ import { ZONE_COLORS, ZONE_LABELS, FACTOR_LABELS, Z_THRESHOLDS } from "@/lib/con
 export default function CompareView({ runs }: { runs: any[] }) {
   const zData = runs.map((r) => ({
     name: r.supplier?.name || "?",
-    z: r.run.z_score ?? 0,
+    z: r.run.z_score,
     fill: ZONE_COLORS[r.run.risk_zone as keyof typeof ZONE_COLORS] || "#2563eb",
     model: r.run.model as "Z" | "Z'" | "Z''",
   }));

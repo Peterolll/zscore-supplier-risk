@@ -11,7 +11,7 @@ export const zh: Messages = {
   brand: {
     shortTitle: "供应商 Z-Score",
     fullTitle: "供应商 Z-Score 风险分析",
-    tagline: "上传财报 PDF，自动计算 Altman Z-Score 并可视化供应商信用风险",
+    tagline: "上传财报 PDF / Excel，自动计算 Altman Z-Score 并可视化供应商信用风险",
     footer: "Altman Z-Score 自动计算 · 阈值基于美国样本，跨国比较仅供参考",
   },
   nav: {
@@ -27,12 +27,12 @@ export const zh: Messages = {
     settings: "⚙ 设置",
     viewAll: "查看全部 →",
     emptyTitle: "还没有分析记录",
-    emptyHint: "从左侧上传一份财报 PDF 或 PPTX 开始分析",
+    emptyHint: "从左侧上传一份财报 PDF、PPTX 或 Excel 开始分析",
     methodLabel: "方式",
   },
   upload: {
-    fileLabel: "财报文件（PDF / PPTX）*",
-    fileHint: "已选 {n} 个文件，将自动合并为单份报表后提取（建议均为 PDF；PPTX 请单独上传）。",
+    fileLabel: "财报文件（PDF / PPTX / XLSX / XLSM）*",
+    fileHint: "已选 {n} 个文件，将自动合并为单份报表后提取（建议均为 PDF；PPTX / Excel 请单独上传）。",
     remove: "移除",
     nameLabel: "供应商名称",
     namePlaceholder: "留空则取文件名",
@@ -50,9 +50,9 @@ export const zh: Messages = {
     submitting: "解析与计算中…",
     submit: "上传并分析",
     note:
-      "提示：公司类型与行业均由人工确认，系统不自动猜测模型。支持 PDF 与 PPTX；多张分表（如合并资产负债表+利润表+现金流量表）可一次选多张 PDF 自动合并；电子文本直接解析，扫描件需 GLM_API_KEY。",
-    errNoFile: "请先选择财报文件（PDF / PPTX；多张报表可一次选多张 PDF 自动合并）",
-    errOcrUnavailable: "该财报为扫描件，需配置 GLM_API_KEY 启用 GLM-4V-Flash OCR 才能解析。",
+      "提示：公司类型与行业均由人工确认，系统不自动猜测模型。支持 PDF、PPTX 和 Excel（.xlsx/.xlsm）；多张分表（如合并资产负债表+利润表+现金流量表）可一次选多张 PDF 自动合并；电子文本直接解析，扫描件使用设置页 API Key 调用 GLM-4V-Flash。",
+    errNoFile: "请先选择财报文件（PDF / PPTX / Excel；多张报表可一次选多张 PDF 自动合并）",
+    errOcrUnavailable: "该财报为扫描件，需在设置页配置支持 GLM-4V-Flash 的 API Key 才能解析。",
     errGeneric: "分析失败",
   },
   suppliersPage: {

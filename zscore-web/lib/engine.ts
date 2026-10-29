@@ -3,6 +3,9 @@
 import { spawn, execFileSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { getAiConfig, apiUrl } from "./ai-config";
+import { audit } from "./audit";
 import type { EngineResult, Industry, Period, Gaap } from "./types";
 
 /**
@@ -161,10 +164,12 @@ export function resolveWorkspace(): string {
 const WORKSPACE = resolveWorkspace();
 
 export interface EngineParams {
+  traceId?: string;
   pdfPaths: string[];
   name: string;
   industry: Industry;
   period: Period;
+  flowBasis?: "ytd" | "quarter";
   gaap: Gaap;
   currency?: string;
   note?: string;
@@ -184,6 +189,8 @@ export function runEngine(params: EngineParams): Promise<EngineResult> {
       params.industry,
       "--period",
       params.period,
+      "--flow-basis",
+      params.flowBasis || "ytd",
       "--gaap",
       params.gaap,
       "--currency",
@@ -197,7 +204,17 @@ export function runEngine(params: EngineParams): Promise<EngineResult> {
 
     // 每次分析都重新解析解释器路径（用户可能先启动服务、后装依赖）
     const python = resolvePython();
-    const proc = spawn(python, args, { cwd: WORKSPACE });
+    const traceId = params.traceId || randomUUID();
+    const cfg = getAiConfig();
+    const url = apiUrl(cfg.base_url,"chat/completions");
+    audit(traceId,"engine.started",{files:params.pdfPaths.map(f=>path.basename(f)),vision_model:cfg.vision_model});
+    const proc = spawn(python, args, { cwd: WORKSPACE, env: {
+      ...process.env, ZSCORE_TRACE_ID:traceId, ZSCORE_TRACE_DIR:path.join(process.cwd(),"data","traces"),
+      ...(cfg.api_key ? {ZSCORE_VISION_API_KEY:cfg.api_key,ZSCORE_VISION_URL:url,
+        ZSCORE_VISION_MODEL:cfg.vision_model} : {}),
+    }});
+    const timer=setTimeout(()=>{proc.kill();audit(traceId,"engine.timeout");},300000);
+    proc.on('close',()=>clearTimeout(timer));
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
@@ -220,6 +237,7 @@ export function runEngine(params: EngineParams): Promise<EngineResult> {
         return;
       }
       try {
+        audit(traceId,"engine.completed",{exit_code:code});
         resolve(JSON.parse(trimmed) as EngineResult);
       } catch {
         resolve({ ok: false, error: "BAD_JSON", message: trimmed.slice(0, 800) });

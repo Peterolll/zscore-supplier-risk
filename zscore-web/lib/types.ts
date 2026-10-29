@@ -7,7 +7,29 @@ export type Gaap = "cas" | "ifrs" | "tw_gaap" | "hk_gaap" | "other";
 export type RiskZone = "safe" | "grey" | "distress" | "unknown";
 export type ZModel = "Z" | "Z'" | "Z''";
 
+export interface SourceEvidence {
+  formula?: string | null;
+  id?: string;
+  source_file?: string | null;
+  page?: number | null;
+  bbox?: number[] | null;
+  coordinate_space?: string;
+  rotation?: number;
+  sheet?: string | null;
+  cell?: string | null;
+  raw_label?: string;
+  raw_value?: string;
+  column?: string | null;
+  period?: string | null;
+  unit?: string | null;
+  unit_scale?: number | null;
+}
+export interface SheetSummary { sheet: string; rows: number; columns: number; hidden: boolean; candidates: number; unextracted: number; }
+export interface UnextractedItem { sheet: string; cell: string; label: string; raw_value: string; reason: string; }
+export interface Candidate extends SourceEvidence { id: string; value: number; field_key: string | null; }
 export interface FieldValue {
+  provenance?: SourceEvidence[];
+  dependencies?: string[];
   value: number | null;
   evidence: string;
   source_page: number | null;
@@ -39,14 +61,15 @@ export interface EngineResult {
     name: string;
     industry_class: Industry;
     period_type: Period;
+    flow_basis?: "ytd" | "quarter";
     gaap: Gaap;
     currency: string;
     source_file?: string;
     listed?: boolean;
     equity_value?: number | null;
   };
-  method?: "pdfplumber" | "glm_ocr" | "pptx" | "manual" | "derived";
-  extraction?: { fields: Record<string, FieldValue> };
+  method?: "pdfplumber" | "glm_ocr" | "pptx" | "manual" | "derived" | "excel" | "ai_analyze";
+  extraction?: { fields: Record<string, FieldValue>; candidates?: Candidate[]; trace_id?: string; warnings?: string[]; unextracted?: UnextractedItem[]; sheet_summary?: SheetSummary[] };
   zscore?: ZScore;
 }
 
@@ -75,16 +98,22 @@ export interface SupplierRow {
   id: string;
   name: string;
   industry: Industry;
-  period: Period;
-  gaap: Gaap;
+  period: Period | "unknown";
+  gaap: Gaap | "unknown";
   currency: string;
   source_file: string | null;
+  flow_basis?: "ytd" | "quarter";
+  metadata_unknown?: boolean;
   listed: number; // SQLite 无布尔类型，0/1
   equity_value: number | null;
   created_at: string;
 }
 
 export interface RunRow {
+  trace_id?: string | null;
+  extraction_json?: string | null;
+  profile_snapshot: string | null;
+  ebit_derived: number;
   id: string;
   supplier_id: string;
   z_score: number | null;
@@ -105,6 +134,8 @@ export interface FactorRow {
 }
 
 export interface FieldRow {
+  provenance?: SourceEvidence[];
+  dependencies?: string[];
   field_key: string;
   value: number | null;
   evidence: string;
@@ -113,7 +144,10 @@ export interface FieldRow {
   confidence: number;
 }
 
+export interface PendingSuggestion extends FieldValue { id: string; field_key: string; old_value: number | null; warning?: string; }
+
 export interface RunDetail {
+  pendingSuggestions?: PendingSuggestion[];
   run: RunRow;
   supplier: SupplierRow;
   factors: FactorRow[];

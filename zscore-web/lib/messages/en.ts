@@ -57,12 +57,12 @@ export const en: Messages = {
     submit: "Upload & Analyze",
     note:
       "Note: Company type and industry are user-confirmed; the system never auto-guesses the model. " +
-      "PDF and PPTX supported. Multiple statements (e.g. balance sheet + income statement + cash flow) " +
-      "can be selected together and merged. Electronic text is parsed directly; scanned files require GLM_API_KEY.",
+      "PDF, PPTX, XLSX and XLSM supported. Multiple statements (e.g. balance sheet + income statement + cash flow) " +
+      "can be selected together and merged. Electronic text is parsed directly; scanned files use the configured API Key with GLM-4V-Flash.",
     errNoFile:
-      "Please select financial files first (PDF/PPTX; multiple PDFs can be selected and merged automatically)",
+      "Please select financial files first (PDF/PPTX/XLSX/XLSM; multiple PDFs can be selected and merged automatically)",
     errOcrUnavailable:
-      "This statement is a scanned image. Configure GLM_API_KEY to enable GLM-4V-Flash OCR.",
+      "This statement is a scanned image. Configure an API Key in Settings to enable GLM-4V-Flash OCR.",
     errGeneric: "Analysis failed",
   },
   suppliersPage: {

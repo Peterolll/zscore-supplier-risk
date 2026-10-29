@@ -23,6 +23,20 @@ class LineItem:
     raw_value: str
     page: int
     method: ExtractMethod
+    unit_scale: float | None = field(default=None, kw_only=True)
+    statement: bool = field(default=False, kw_only=True)
+    consolidated: bool = field(default=False, kw_only=True)
+    unit_unknown: bool = field(default=False, kw_only=True)
+    formula: str | None = field(default=None, kw_only=True)
+    source_file: str | None = field(default=None, kw_only=True)
+    bbox: list[float] | None = field(default=None, kw_only=True)
+    coordinate_space: str = field(default="original_normalized", kw_only=True)
+    rotation: int = field(default=0, kw_only=True)
+    sheet: str | None = field(default=None, kw_only=True)
+    cell: str | None = field(default=None, kw_only=True)
+    column: str | None = field(default=None, kw_only=True)
+    period: str | None = field(default=None, kw_only=True)
+    unit: str | None = field(default=None, kw_only=True)
     source: str = "table"   # "table" 优先于 "text"（双列报表本期列）
 
 
@@ -30,27 +44,53 @@ def _is_numeric(s: str) -> bool:
     return bool(re.search(r"[\d,]", s)) and not s.strip().isalpha()
 
 
+def table_items(rows, page_no: int, method: ExtractMethod) -> list[LineItem]:
+    items = []
+    value_col = 1  # A headerless two-column table has one unambiguous value column.
+    has_header = False
+    selected_header = "金额"
+    for row in rows:
+        cells = [str(c).strip() if c is not None else "" for c in (row or [])]
+        current = [i for i, c in enumerate(cells) if i > 0 and re.search(
+            r"本期|期末|年末|本年|本季|本季度|本报告期|本報告期|current|this (?:year|period)|ending", c, re.I)
+            and not re.search(r"上期|上年|previous|prior|opening", c, re.I)]
+        if current:
+            value_col = current[0]
+            selected_header = cells[value_col]
+            has_header = True
+            continue
+        years = [(i, int(m.group())) for i, c in enumerate(cells) if (m := re.search(r"\b20\d{2}\b", c))]
+        if len(years) >= 2 and (not cells[0] or re.search(r"科目|项目|項目|account|item|year|date", cells[0], re.I)):
+            value_col = max(years, key=lambda x: x[1])[0]
+            selected_header = cells[value_col]
+            has_header = True
+            continue
+        if any(re.search(r"上期|期初|上年|previous|prior|opening|附注|行次|note", c, re.I) for c in cells):
+            # Ambiguous header: do not guess an amount column.
+            if any(re.search(r"科目|项目|項目|account|item", c, re.I) for c in cells):
+                value_col = None
+                continue
+        if not has_header and len(cells) > 2:
+            # Multiple unlabelled numeric columns (including notes/row numbers) are ambiguous.
+            items.append(LineItem(cells[0], "", page_no, method, "table"))
+            continue
+        if value_col is None or len(cells) <= value_col or not cells[0]:
+            continue
+        value = cells[value_col]
+        if value and _is_numeric(value):
+            items.append(LineItem(cells[0], value, page_no, method, "table", column=selected_header,period=selected_header))
+        else:
+            # Preserve a missing current-period cell so text fallback cannot select prior data.
+            items.append(LineItem(cells[0], "", page_no, method, "table"))
+    return items
+
+
 def _extract_tables(page, page_no: int, method: ExtractMethod) -> list[LineItem]:
-    items: list[LineItem] = []
     try:
         tables = page.extract_tables()
-    except Exception:  # noqa: BLE001
+    except Exception:
         tables = []
-    for t in tables:
-        for row in t:
-            cells = [str(c).strip() for c in (row or []) if c is not None and str(c).strip() != ""]
-            if len(cells) < 2:
-                continue
-            label = cells[0]
-            # 双列报表 [label, 本期, 上期] → 取本期(cells[1])；单列 [label, value]
-            val = None
-            if _is_numeric(cells[1]):
-                val = cells[1]
-            elif _is_numeric(cells[-1]):
-                val = cells[-1]
-            if val:
-                items.append(LineItem(label, val, page_no, method, "table"))
-    return items
+    return [item for table in tables for item in table_items(table, page_no, method)]
 
 
 # 整行扫描：标签(以 CJK 或 拉丁字母 起头) + 后接首个数值。
@@ -105,28 +145,39 @@ def _parse_ocr_text(ocr_text: str) -> list[LineItem]:
     跳过封面/附注页散文、表头行、比较期(上期/期初)行。数值取本期（3 列时取中间列），
     负值保留（负债在 GLM 输出中常以负数列示，符号在 m4_map 处理）。
     """
-    items: list[LineItem] = []
-    for i, raw in enumerate(ocr_text.split("\n")):
+    if re.search(r"\[PAGE \d+\]", ocr_text):
+        parts = re.split(r"\[PAGE (\d+)\]", ocr_text)
+        combined = []
+        for n in range(1, len(parts), 2):
+            parsed = _parse_ocr_text(parts[n + 1])
+            for item in parsed:
+                item.page = int(parts[n])
+            combined.extend(parsed)
+        return combined
+    rows: list[list[str]] = []
+    for raw in ocr_text.split("\n"):
         line = raw.strip()
         if not line:
             continue
-        low = line.lower()
-        if any(k in low for k in _COMPARATIVE_KW):
-            continue
         if "|" in line:
-            cells = [c.strip() for c in line.split("|") if c.strip()]
+            cells = [c.strip() for c in line.split("|")]
+            if cells and not cells[0]:
+                cells.pop(0)
+            if cells and not cells[-1]:
+                cells.pop()
         else:
-            # 兼容 GLM 返回真制表符(\t) 或字面量 <TAB>
-            cells = [c.strip() for c in re.split(r"\t|<TAB>| {2,}", line) if c.strip()]
-        if len(cells) < 2:
+            # Empty TAB cells are real columns, including a missing current value.
+            cells = [c.strip() for c in re.split(r"\t|<TAB>| {2,}", line)]
+        if len(cells) < 2 or not cells[0] or set(cells[0]) <= set("-—:"):
             continue
-        if cells[0] in _HEADER_KW or set(cells[0]) <= set("-—"):
+        cells[0] = _clean_label(cells[0])
+        if any(k in cells[0].lower() for k in _COMPARATIVE_KW):
             continue
-        label = _clean_label(cells[0])
-        val_cell = cells[1] if len(cells) >= 3 and _is_numeric(cells[1]) else cells[-1]
-        if not label or not _is_numeric(val_cell):
-            continue
-        items.append(LineItem(label, val_cell, i, ExtractMethod.GLM_OCR, "text"))
+        rows.append(cells)
+    items = table_items(rows, 0, ExtractMethod.GLM_OCR)
+    for item in items:
+        item.source = "text"
+    attach_page_metadata(items, ocr_text, ocr=True)
     return items
 
 
@@ -141,10 +192,12 @@ _DEFAULT_VERIFY_FIELDS = ("revenue", "profit_before_tax", "interest_expense")
 def _covered_fields(items: list[LineItem]) -> set[str]:
     """这批 LineItem 已经覆盖到哪些规范字段。"""
     from .synonym import match_field
+    from .m4_map import parse_number
     out: set[str] = set()
     for it in items:
         f = match_field(it.label)
-        if f:
+        scale = it.unit_scale if it.unit_scale is not None else 1.0
+        if f and not it.unit_unknown and parse_number(it.raw_value, scale) is not None:
             out.add(f)
     return out
 
@@ -159,7 +212,7 @@ def _merge_missing(dst: list[LineItem], src: list[LineItem], missing: set[str]) 
     still = set(missing)
     for it in src:
         f = match_field(it.label)
-        if f and f in still:
+        if f and f in still and f in _covered_fields([it]):
             dst.append(it)
             still.discard(f)
 
@@ -186,8 +239,6 @@ def _ocr_with_verification(pdf_path: str) -> tuple[list[LineItem], str, int, lis
         missing = verify_fields - _covered_fields(best)
         if not missing:
             break
-        if attempt >= max_attempts:
-            break
         # parsed 与 best 同一对象（首次循环）时不能自并，否则字段翻倍
         if parsed is not best:
             _merge_missing(best, parsed, missing)
@@ -211,8 +262,22 @@ def extract_pdf(pdf_path: str | Path, force_ocr: bool = False) -> tuple[list[Lin
             for i, page in enumerate(pdf.pages):
                 txt = page.extract_text() or ""
                 text_len += len(txt)
-                items += _extract_tables(page, i, ExtractMethod.PDFPLUMBER)
-                items += _extract_text_lines(txt, i, ExtractMethod.PDFPLUMBER)
+                page_items = _extract_tables(page, i, ExtractMethod.PDFPLUMBER)
+                from .synonym import match_field, normalize
+                blocked = {match_field(it.label) or normalize(it.label) for it in page_items}
+                page_items += [it for it in _extract_text_lines(txt, i, ExtractMethod.PDFPLUMBER)
+                               if (match_field(it.label) or normalize(it.label)) not in blocked]
+                attach_page_metadata(page_items, txt)
+                for item in page_items:
+                    item.source_file = str(Path(pdf_path).resolve())
+                    if not item.raw_value:continue
+                    hits=page.search(re.escape(item.raw_value)) or []
+                    labels=page.search(re.escape(item.label)) or []
+                    aligned=[h for h in hits if any(abs(h['top']-lab['top'])<8 for lab in labels)]
+                    if len(aligned)==1:
+                        h=aligned[0];item.bbox=[h['x0']/page.width,h['top']/page.height,h['x1']/page.width,h['bottom']/page.height]
+                items += page_items
+        finalize_units(items)
         # 启发式：含「资产负债表小计/总计」标记且文本量足 → 视为电子文本。
         # 2026-08-05 修正：原 KW 用泛化词("assets"/"负债")会误命中 note 散文
         # (如 QSP 英文 notes 的 "All other assets are classified as non-current")，
@@ -240,30 +305,41 @@ def extract_pdf(pdf_path: str | Path, force_ocr: bool = False) -> tuple[list[Lin
             raise OCRUnavailable(
                 f"扫描件需 GLM-4V-Flash OCR，但 GLM_API_KEY 未设置：{pdf_path}"
             )
-        items, ocr_text, ocr_attempts, still_missing = _ocr_with_verification(pdf_path)
-        if not items:
-            from .ocr_glm import OCRUnavailable
-            raise OCRUnavailable(
-                f"GLM-4V-Flash OCR 未返回可解析的财务科目（可能 key 无效或页面无表格）：{pdf_path}"
-            )
-        if ocr_attempts > 1 or still_missing:
-            # 诊断信息走 stderr：serve.py 的 JSON 输出在 stdout，不会被污染
-            import sys
-            print(
-                f"[m2_extract] OCR 校验：调用 {ocr_attempts} 次，"
-                f"{'关键字段已齐备' if not still_missing else '仍缺失 ' + ','.join(still_missing)}"
-                f"（{pdf_path}）",
-                file=sys.stderr,
-            )
-        return items, ExtractMethod.GLM_OCR, len(ocr_text)
+        from .vision import extract_pdf_vision
+        return extract_pdf_vision(pdf_path)
 
     return items, ExtractMethod.PDFPLUMBER, text_len
 
 
+def explicit_unit_scale(text: str) -> float | None:
+    """Only unit declarations, not arbitrary financial prose, determine scale."""
+    patterns = [(1e9, r"(?:in |in\s+)(?:billions)|单位[：: ]*十亿|單位[：: ]*十億"),
+                (1e6, r"(?:in |in\s+)(?:millions)|百万[元圓]|百萬[元圓]"),
+                (1e4, r"(?<!百)万元|(?<!百)萬元"),
+                (1e3, r"千元|仟元|(?:in |in\s+)(?:thousands)|[\$€£]\s*['’]?000"),
+                (1.0, r"(?:单位|單位)[：: ]*(?:人民币|人民幣|新台币|新臺幣|港币|港幣)?[元圓]|in (?:dollars|yuan)|金额[（(]元[）)]|金額[（(]元[）)]") ]
+    found = {scale for scale, pattern in patterns if re.search(pattern, text, re.I)}
+    return next(iter(found)) if len(found) == 1 else None
+
+
 def detect_unit_scale(text: str) -> float:
-    """检测报表计量单位 → 换算到元。默认 1（元）。"""
-    if "万元" in text:
-        return 10_000.0
-    if "千元" in text:
-        return 1_000.0
-    return 1.0
+    return explicit_unit_scale(text) or 1.0
+
+
+def attach_page_metadata(items: list[LineItem], text: str, *, ocr: bool = False) -> None:
+    scale = explicit_unit_scale(text)
+    heading = " ".join(text.splitlines()[:8])
+    statement = not bool(re.search(r"附注|附註|notes to", heading, re.I)) and bool(re.search(r"资产负债表|資產負債表|利润表|利潤表|損益表|balance sheet|statement.*(?:financial position|income|profit)", heading, re.I))
+    for item in items:
+        item.unit_scale = scale
+        item.unit_unknown = ocr and scale is None
+        item.unit = "元" if scale == 1 else "千元" if scale == 1000 else "万元" if scale == 10000 else "百万元" if scale == 1000000 else None
+        item.statement = statement
+        item.consolidated = statement and bool(re.search(r"合并|合併|consolidated", heading, re.I))
+
+
+def finalize_units(items: list[LineItem]) -> None:
+    """Never apply one page's unit to another page without its own declaration."""
+    for item in items:
+        if item.unit_scale is None:
+            item.unit_unknown = True

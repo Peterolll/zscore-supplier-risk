@@ -35,7 +35,7 @@ def _resolve_glm_key() -> str:
       - zscore_pipeline/.env          GLM_API_KEY=xxxx 形式
     注意：密钥文件含敏感信息，请勿提交到版本库。
     """
-    key = (os.environ.get("GLM_API_KEY", "") or "").strip()
+    key = (os.environ.get("ZSCORE_VISION_API_KEY") or os.environ.get("GLM_API_KEY", "") or "").strip()
     if key:
         return key
     for c in (WORKSPACE / ".glm_key", WORKSPACE / ".env"):
@@ -55,12 +55,12 @@ def _resolve_glm_key() -> str:
 GLM_API_KEY = _resolve_glm_key()
 GLM_OCR = {
     "api_key": GLM_API_KEY,
-    "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    "model": "glm-4v-flash",
+    "base_url": os.environ.get("ZSCORE_VISION_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions"),
+    "model": os.environ.get("ZSCORE_VISION_MODEL", "glm-4v-flash"),
     "enabled": bool(GLM_API_KEY),
     "ocr_prompt": (
         "这是一张企业财务报表页面。请 OCR 并结构化提取所有表格的科目与数值，"
-        "保留原始数字（含逗号与负号，括号表示负数）。"
+        "保留原始数字（含逗号与负号，括号表示负数）。先原样输出报表标题与计量单位；不换算金额。"
         "按行输出：每行 '科目名<TAB>数值'，不要解释，不要省略。"
     ),
     # ---- 关键字段校验重试（2026-09-03）----
@@ -94,8 +94,8 @@ ANNUALIZE_FACTOR = {
     "annual": 1,      # 年度报告 12 个月
     "semi": 2,        # 半年度 6 个月
     "q1": 4,          # 一季度 3 个月
-    "q2": 4,          # 二季度（半年报等价）
-    "q3": 4,
+    "q2": 2,          # 年初至今累计六个月
+    "q3": 4 / 3,      # 年初至今累计九个月
     "q4": 1,          # Q4 合併財報通常等价全年
 }
 

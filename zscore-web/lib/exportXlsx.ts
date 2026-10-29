@@ -33,6 +33,15 @@ export async function buildRunXlsx(detail: RunDetail): Promise<Buffer> {
   wb.created = new Date();
   const ws = wb.addWorksheet("Z-Score 结果");
   ws.views = [{ state: "frozen", ySplit: 1 }];
+  const missed=run.extraction_json ? JSON.parse(run.extraction_json).unextracted ?? [] : [];
+  if(missed.length) {
+    const sheet=wb.addWorksheet("未完整抓取清单");
+    sheet.addRow(["工作表","单元格","科目","原始内容","原因"]);
+    for(const row of missed)sheet.addRow([row.sheet,row.cell,row.label,row.raw_value,row.reason]);
+    sheet.getRow(1).font={bold:true};
+    sheet.columns.forEach((c,i)=>{c.width=i===4?52:24;});
+  }
+
 
   const fv = (k: string) => factors.find((x) => x.key === k)?.value ?? null;
   const zoneLabel = ZONE_LABELS[run.risk_zone] ?? run.risk_zone;
@@ -83,7 +92,7 @@ export async function buildRunXlsx(detail: RunDetail): Promise<Buffer> {
     ["股权价值", supplier.equity_value != null ? supplier.equity_value : "—"],
     ["行业分类", INDUSTRY_LABELS[supplier.industry] ?? supplier.industry],
     ["报告期", `${PERIOD_LABELS[supplier.period] ?? supplier.period}（${supplier.period}）`],
-    ["会计准则", GAAP_LABELS[supplier.gaap] ?? supplier.gaap],
+    ["会计准则", GAAP_LABELS[supplier.gaap] ?? "未知"],
     ["币种", supplier.currency],
     ["提取方式", run.method],
     ["评级来源", override?.risk_overridden ? "人工覆盖" : "模型计算"],
@@ -106,7 +115,7 @@ export async function buildRunXlsx(detail: RunDetail): Promise<Buffer> {
   sect3.fill = SECTION_FILL;
   ws.getCell(r, 2).fill = SECTION_FILL;
   r++;
-  const trHeaders = ["字段", "中文名", "数值", "证据", "页码", "提取方式", "置信度"];
+  const trHeaders = ["字段", "中文名", "数值", "证据", "页码", "提取方式", "置信度", "原始数字", "期间/列", "单位", "坐标/单元格"];
   trHeaders.forEach((h, i) => {
     const c = ws.getCell(r, i + 1);
     c.value = h;
@@ -119,9 +128,13 @@ export async function buildRunXlsx(detail: RunDetail): Promise<Buffer> {
     ws.getCell(r, 2).value = DICT_FIELD_META[f.field_key as keyof typeof DICT_FIELD_META]?.label ?? "";
     ws.getCell(r, 3).value = num(f.value);
     ws.getCell(r, 4).value = f.evidence || "—";
-    ws.getCell(r, 5).value = f.source_page ?? "—";
+    ws.getCell(r, 5).value = f.source_page == null ? "—" : f.source_page+1;
     ws.getCell(r, 6).value = f.method || "—";
     ws.getCell(r, 7).value = f.confidence == null ? "—" : f.confidence.toFixed(2);
+    ws.getCell(r, 8).value = f.provenance?.map(p=>p.raw_value).join(" + ") || "—";
+    ws.getCell(r, 9).value = f.provenance?.map(p=>`${p.period ?? "未知"} / ${p.column ?? "未知"}`).join("；") || "—";
+    ws.getCell(r, 10).value = f.provenance?.map(p=>`${p.unit ?? "未知"} × ${p.unit_scale ?? "?"}`).join("；") || "—";
+    ws.getCell(r, 11).value = f.provenance?.map(p=>p.sheet ? `${p.sheet}!${p.cell}` : `p${(p.page ?? 0)+1} ${p.coordinate_space}: ${p.bbox?.join(",") ?? "未知"}`).join("；") || "—";
     r++;
   }
 

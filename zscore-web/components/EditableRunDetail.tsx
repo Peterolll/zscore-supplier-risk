@@ -21,8 +21,9 @@ import {
 } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n";
 import { translateGate } from "@/lib/messages";
-import type { RunDetail, RiskZone, Industry } from "@/lib/types";
+import type { SourceEvidence, RunDetail, RiskZone, Industry } from "@/lib/types";
 
+type Suggestion = {id?:string;value:number|null;old_value?:number|null;evidence:string;method:string;confidence:number;warning?:string;provenance?:SourceEvidence[];dependencies?:string[]};
 const ALL_X = ["X1", "X2", "X3", "X4", "X5"] as const;
 
 export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
@@ -31,6 +32,8 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const te = t.enums;
   const { run, supplier, factors, fields, override } = detail;
   const runId = run.id;
+  const [unextracted,setUnextracted]=useState<import("@/lib/types").UnextractedItem[]>(()=>run.extraction_json ? JSON.parse(run.extraction_json).unextracted ?? [] : []);
+  const [sheetSummary,setSheetSummary]=useState<import("@/lib/types").SheetSummary[]>(()=>run.extraction_json ? JSON.parse(run.extraction_json).sheet_summary ?? [] : []);
 
   const [industry, setIndustry] = useState<Industry>(supplier.industry as Industry);
   const [listed, setListed] = useState<boolean>(supplier.listed === 1);
@@ -45,7 +48,11 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const [msg, setMsg] = useState<string>("");
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiMsg, setAiMsg] = useState<string>("");
-  const [aiSuggestions, setAiSuggestions] = useState<Record<string, { value: number; evidence: string; method: string; confidence: number; warning?: string }>>({});
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, Suggestion>>(() => Object.fromEntries((detail.pendingSuggestions ?? []).map(s=>[s.field_key,s])));
+  const [suggestionEdits,setSuggestionEdits]=useState<Record<string,string>>({});
+  const [confirming,setConfirming]=useState<string | null>(null);
+  const [reviewValidation,setReviewValidation]=useState<{passed?:string[];failed?:string[];notes?:string[]}>({});
+  const [reviewTrace,setReviewTrace]=useState<string | null>(null);
   const [fieldAiLoading, setFieldAiLoading] = useState<Record<string, boolean>>({});
   const [fieldAiMsg, setFieldAiMsg] = useState<Record<string, string>>({});
 
@@ -84,14 +91,14 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
     setSaving(true);
     setMsg("");
     // 收集发生变化的财务字段（仅回传改动项，避免把自动提取字段误标为人工补录）
-    const changed: Record<string, number> = {};
+    const changed: Record<string, number | null> = {};
     for (const f of EDIT_FIELDS) {
       const ex = fields.find((x) => x.field_key === f.key);
       const cur = ex && ex.value != null ? String(ex.value) : "";
-      const next = (fieldEdits[f.key] ?? "").trim();
-      if (next !== "" && next !== cur) {
-        const n = Number(next);
-        if (!Number.isNaN(n)) changed[f.key] = n;
+      const next = (fieldEdits[f.key] ?? cur).trim();
+      if (next !== cur) {
+        const n = next === "" ? null : Number(next);
+        if (n === null || Number.isFinite(n)) changed[f.key] = n;
       }
     }
     try {
@@ -109,14 +116,14 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setMsg(t.detail.saveFailPrefix + (data.error || res.status));
+        setMsg(t.detail.saveFailPrefix + (data.message || data.error || res.status));
       } else {
         setMsg(
           Object.keys(changed).length
             ? t.detail.savePartial(Object.keys(changed).length)
             : t.detail.saveOk
         );
-        setFieldEdits({}); // 清空编辑态，输入框改回显示存储值
+        setFieldEdits({});
         router.refresh();
       }
     } catch (e: any) {
@@ -129,6 +136,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const gatesPassed = (run.gates_passed || "").split(",").filter(Boolean);
   const gatesFailed = (run.gates_failed || "").split(",").filter(Boolean);
   const notes = (run.notes || "").split(",").filter(Boolean);
+  if (supplier.metadata_unknown) notes.unshift(lang === "en" ? "Historical report metadata is unknown. Re-upload the report to confirm." : "历史报告元数据未知，请重新上传财报确认；不会使用最新财报替代。");
 
   // 可编辑财务字段（抓不到时人工手填）；初值取已存储值
   const EDIT_FIELDS: { key: string; label: string }[] = [
@@ -137,12 +145,16 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
     { key: "total_assets", label: lang === "en" ? "Total Assets" : "总资产" },
     { key: "total_liabilities", label: lang === "en" ? "Total Liabilities" : "总负债" },
     { key: "equity_total", label: lang === "en" ? "Book Equity" : "权益总计(账面)" },
-    { key: "equity_value", label: lang === "en" ? "Market Cap" : "股权价值(市值)" },
     { key: "retained_earnings", label: lang === "en" ? "Retained Earnings" : "留存收益" },
     { key: "revenue", label: lang === "en" ? "Revenue" : "营业收入" },
     { key: "profit_before_tax", label: lang === "en" ? "PBT" : "税前利润" },
+    { key: "finance_expenses", label: "财务费用（辅助，不等同利息费用）" },
     { key: "interest_expense", label: lang === "en" ? "Interest Expense" : "利息费用" },
     { key: "ebit", label: lang === "en" ? "EBIT" : "息税前利润(EBIT)" },
+    { key: "net_profit", label: "净利润（勾稽辅助）" },
+    { key: "income_tax", label: "所得税费用（勾稽辅助）" },
+    { key: "surplus_reserve", label: "盈余公积" },
+    { key: "undistributed_profit", label: "未分配利润" },
   ];
   const [fieldEdits, setFieldEdits] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
@@ -157,10 +169,9 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
   const needsConfirmCount = fields.filter((f) => fieldNeedsConfirm(f)).length;
 
   // AI 分析补全：调用 /api/runs/[runId]/ai-analyze
-  //   默认 mode="split"（拆 BS/IS 独立 call，准确率 8/8，cost ≈ 2× unified）
   //   字段级 (fieldKey) 与整体分析共用同一路由，仅 fields 参数不同
   // fieldKey: 指定单个字段分析；省略则自动分析所有空缺字段
-  async function handleAiAnalyze(fieldKey?: string) {
+  async function handleAiAnalyze(fieldKey?: string, scope: "missing" | "all" = "missing") {
     if (fieldKey) {
       setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: true }));
     } else {
@@ -169,7 +180,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
     setAiMsg("");
     const t0 = Date.now();
     try {
-      const payload: any = { mode: "split" };
+      const payload: {scope:string;fields?:string[]} = { scope };
       if (fieldKey) payload.fields = [fieldKey];
       const res = await fetch(`/api/runs/${runId}/ai-analyze`, {
         method: "POST",
@@ -177,12 +188,15 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      if(data.trace_id)setReviewTrace(data.trace_id);
+      if(data.validation)setReviewValidation(data.validation);
       // 后端可能在 HTTP 200 下返回 ok=false（AI 全部失败但请求本身成功）
       if (!res.ok) {
         // HTTP 非 200（404/401/500 等）才是真正的请求失败
-        const errMsg = t.detail.aiFailPrefix + (data.error || data.message || `HTTP ${res.status}`);
+        const errMsg = t.detail.aiFailPrefix + (data.message || data.error || `HTTP ${res.status}`);
         if (fieldKey) {
           setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
+          setFieldAiMsg(prev=>({...prev,[fieldKey]:errMsg}));
         } else {
           setAiMsg(errMsg);
         }
@@ -190,7 +204,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       }
       if (!data.ok) {
         // HTTP 200 但 ok=false → AI 调用失败（如 API Key 过期、模型不可用等）
-        const errDetail = data.error || data.message || data.errors?.join("; ") || "未知原因";
+        const errDetail = data.message || data.error || data.errors?.join("; ") || "未知原因";
         const errMsg = t.detail.aiFailPrefix + errDetail;
         if (fieldKey) {
           setFieldAiLoading((prev) => ({ ...prev, [fieldKey]: false }));
@@ -213,22 +227,14 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       }
       // 仅写入建议（aiSuggestions），【不】自动覆盖输入框。
       // 用户必须点击"采纳"才把 AI 值写入字段；"忽略"则保持原数字不变。
-      const newSugs: Record<string, { value: number; evidence: string; method: string; confidence: number; warning?: string }> = {};
-      for (const s of sugs) {
-        if (s.value == null || s.value === 0) continue;
-        newSugs[s.field_key] = {
-          value: s.value,
-          evidence: s.evidence,
-          method: s.method,
-          confidence: s.confidence,
-          warning: s.warning,
-        };
-      }
+      const newSugs: Record<string, Suggestion> = {};
+      for (const s of sugs) newSugs[s.field_key] = s;
       const filledCount = Object.keys(newSugs).length;
       setAiSuggestions((prev) => ({ ...prev, ...newSugs }));
+      setSuggestionEdits(prev=>Object.fromEntries(Object.entries(prev).filter(([key])=>!Object.hasOwn(newSugs,key))));
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       const models = data.models_used ? data.models_used.join(", ") : "";
-      const modeUsed = data.mode ?? "";
+      const modeUsed = lang === "en" ? "Evidence review" : "文本证据复核";
       const fallbackNote = data.fallback ? " ← unified fallback" : "";
       const resultMsg = t.detail.aiResultFmt(modeUsed, models, filledCount, elapsed, fallbackNote);
       if (fieldKey) {
@@ -250,25 +256,71 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
     }
   }
 
-  // 接受某个字段的 AI 建议（填入输入框）
-  function acceptAiSuggestion(fieldKey: string) {
-    const sug = aiSuggestions[fieldKey];
-    if (!sug) return;
-    setFieldEdits((prev) => ({ ...prev, [fieldKey]: String(sug.value) }));
+  async function handleExcelReextract() {
+    setAiAnalyzing(true);setAiMsg("");
+    try {
+      const response=await fetch(`/api/runs/${runId}/reextract`,{method:"POST"});
+      const data=await response.json();
+      if(data.trace_id)setReviewTrace(data.trace_id);
+      if(!response.ok)throw new Error(data.message || "重新读取失败");
+      setAiSuggestions(Object.fromEntries(data.suggestions.map((s:Suggestion & {field_key:string})=>[s.field_key,s])));
+      setSuggestionEdits({});setUnextracted(data.unextracted ?? []);setSheetSummary(data.sheet_summary ?? []);
+      if(data.validation)setReviewValidation(data.validation);
+      setAiMsg(`已原生读取 ${data.sheet_summary?.length ?? 0} 个 Sheet，无需 AI。结果待确认，现有财务值未改变。`);
+    }catch(error){setAiMsg(error instanceof Error ? error.message : "重新读取失败");}
+    finally{setAiAnalyzing(false);}
+  }
+  const referencePbt=aiSuggestions.profit_before_tax?.value ?? fields.find(f=>f.field_key==='profit_before_tax')?.value ?? null;
+  const referenceFinance=aiSuggestions.finance_expenses?.value ?? fields.find(f=>f.field_key==='finance_expenses')?.value ?? null;
+
+  // Only this explicit confirmation writes a candidate into financial fields.
+  async function acceptAiSuggestion(fieldKey: string) {
+    const sug=aiSuggestions[fieldKey];
+    if(!sug)return;
+    const draft=suggestionEdits[fieldKey] ?? (sug.value===null ? "" : String(sug.value));
+    const value=draft.trim()==="" ? null : Number(draft);
+    if(value===null || !Number.isFinite(value)){setAiMsg("请填写有效数字后确认");return;}
+    setConfirming(fieldKey);
+    try {
+      const unchanged=value===sug.value;
+      const response=await fetch(`/api/runs/${runId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:{[fieldKey]:value},acceptedSuggestions:unchanged && sug.id ? {[fieldKey]:sug.id} : undefined})});
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.message || data.error || "确认失败");
+      setFieldEdits(prev=>({...prev,[fieldKey]:String(value)}));
+      closeAiSuggestion(fieldKey);
+      setAiMsg("已确认并同步财务字段，已重新计算");
+      router.refresh();
+    }catch(error){setAiMsg(error instanceof Error ? error.message : "确认失败");}
+    finally{setConfirming(null);}
   }
 
   // 忽略某个字段的 AI 建议
-  function dismissAiSuggestion(fieldKey: string) {
+  function closeAiSuggestion(fieldKey: string) {
     setAiSuggestions((prev) => {
       const updated = { ...prev };
       delete updated[fieldKey];
       return updated;
     });
+    setSuggestionEdits(prev=>{const updated={...prev};delete updated[fieldKey];return updated;});
     setFieldAiMsg((prev) => {
       const updated = { ...prev };
       delete updated[fieldKey];
       return updated;
     });
+  }
+
+  async function dismissAiSuggestion(fieldKey:string) {
+    const suggestion=aiSuggestions[fieldKey];
+    if(!suggestion?.id){closeAiSuggestion(fieldKey);return;}
+    setConfirming(fieldKey);
+    try {
+      const response=await fetch(`/api/runs/${runId}/suggestions`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:suggestion.id})});
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error || "取消失败");
+      closeAiSuggestion(fieldKey);
+      setAiMsg("已取消该建议，财务字段保持原值");
+    }catch(error){setAiMsg(error instanceof Error ? error.message : "取消失败");}
+    finally{setConfirming(null);}
   }
 
   return (
@@ -290,6 +342,36 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
       <div className="text-xs text-gray-600">
         {listed ? te.listed : te.unlisted} · {industry === "manufacturing" ? te.manufacturing : te.service} · {supplier?.period} · {supplier?.gaap} · {supplier?.currency}
       </div>
+
+      <section className="border rounded-lg p-3 bg-white space-y-3">
+        <h3 className="font-semibold">证据提取（科目溯源）与待确认结果</h3>
+        <div className="flex flex-wrap items-center gap-3">
+          {supplier.source_file && /\.(xlsx|xlsm)$/i.test(supplier.source_file) && <button disabled={aiAnalyzing} onClick={handleExcelReextract} className="px-3 py-2 rounded border border-green-700 text-green-800 text-sm disabled:opacity-50">重新读取 Excel 全部 Sheet（无需 AI）</button>}
+          <button disabled={aiAnalyzing} onClick={()=>handleAiAnalyze()} className="px-3 py-2 rounded bg-indigo-600 text-white text-sm disabled:opacity-50">AI 分析补全（缺失项）</button>
+          <button disabled={aiAnalyzing} onClick={()=>handleAiAnalyze(undefined,"all")} className="px-3 py-2 rounded border border-indigo-600 text-indigo-700 text-sm disabled:opacity-50">重新核验全部</button>
+          <a href={`/api/runs/${runId}/logs`} target="_blank" className="text-sm text-blue-600 underline">全过程日志</a>
+          {aiAnalyzing && <span className="text-sm">正在读取并复核原文证据…</span>}
+        </div>
+        {sheetSummary.length>0 && <div className="text-xs text-gray-600">工作簿读取结果：{sheetSummary.map(s=><span key={s.sheet} className="inline-block mr-3">{s.sheet}{s.hidden ? "（隐藏）" : ""}：{s.candidates} 个金额候选，{s.unextracted} 项待核对</span>)}</div>}
+        {referencePbt!==null && referenceFinance!==null && <div className="text-xs border border-amber-300 bg-amber-50 rounded p-2">EBIT 参考估算：税前利润 {referencePbt.toLocaleString()} ＋ 财务费用 {referenceFinance.toLocaleString()} ＝ {(referencePbt+referenceFinance).toLocaleString(undefined,{maximumFractionDigits:2})} 元。财务费用还可能包含利息收入、汇兑损益和手续费，此估算不写入 EBIT，不参与风险评级；请补充利息费用或完整明细。</div>}
+        {aiMsg && <p className="text-sm text-gray-600">{aiMsg}</p>}
+        {reviewValidation.failed && <details className="text-xs"><summary>原文独立勾稽：{reviewValidation.failed.length ? `发现 ${reviewValidation.failed.length} 项问题` : "未发现已执行校验的不一致"}（缺失项不代表通过）</summary>
+          <p>通过：{reviewValidation.passed?.join("，") || "无"}</p><p>未通过：{reviewValidation.failed.join("，") || "无"}</p><p>{reviewValidation.notes?.join("；")}</p></details>}
+        {reviewTrace && <p className="text-xs text-gray-500">本次复核编号：{reviewTrace}</p>}
+        {Object.keys(aiSuggestions).length>0 && <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="bg-gray-50"><th className="p-2 text-left">字段</th><th>旧值</th><th>新值</th><th className="text-left">原文与位置</th><th>操作</th></tr></thead><tbody>
+          {Object.entries(aiSuggestions).map(([key,s])=><tr key={key} className="border-t">
+            <td className="p-2">{EDIT_FIELDS.find(f=>f.key===key)?.label || key}</td>
+            <td className="p-2 tabular-nums">{s.old_value?.toLocaleString() ?? "—"}</td>
+            <td className="p-2"><input aria-label={`${key} 待确认新值`} type="number" step="any" className="border rounded p-1 w-36" value={suggestionEdits[key] ?? (s.value===null ? "" : String(s.value))} onChange={e=>setSuggestionEdits(prev=>({...prev,[key]:e.target.value}))} placeholder="待确认" /></td>
+            <td className="p-2 max-w-md break-words">{s.evidence}<div className="text-amber-700">{s.warning}</div>
+              {s.provenance?.map((p,i)=><div key={i} className="text-gray-500">{p.sheet ? `${p.sheet}!${p.cell}` : `第${(p.page ?? 0)+1}页`} · {p.column} · {p.period} · {p.unit} · 坐标 {p.bbox?.join(",") ?? "未知"}</div>)}
+            </td>
+            <td className="p-2 whitespace-nowrap"><button disabled={confirming!==null} onClick={()=>acceptAiSuggestion(key)} className="text-indigo-700 disabled:text-gray-400">{confirming===key ? "同步中…" : "确认"}</button><button disabled={confirming!==null} onClick={()=>dismissAiSuggestion(key)} className="ml-3 text-gray-600">取消</button></td>
+          </tr>)}
+        </tbody></table><p className="mt-2 text-gray-500">未确认的结果不会同步财务字段。可修改新值后点击“确认”；修改后作为人工值记录。取消会关闭该建议并保留日志，不改变财务字段。</p></div>}
+      </section>
+
+      {unextracted.length>0 && <details className="border rounded-lg p-3 bg-amber-50 text-sm"><summary>未能完整抓取的条目清单（{unextracted.length} 项）</summary><p className="my-2">包含空白本期、无缓存公式、单位缺失、列不明确及未映射科目，供逐项核对。</p><table className="w-full text-xs"><thead><tr><th>工作表 / 单元格</th><th>科目</th><th>原始内容</th><th>原因</th></tr></thead><tbody>{unextracted.map((r,i)=><tr key={i} className="border-t"><td className="p-2">{r.sheet}!{r.cell}</td><td>{r.label}</td><td>{r.raw_value}</td><td>{r.reason}</td></tr>)}</tbody></table></details>}
 
       {/* 待人工确认横幅 */}
       {needsConfirmCount > 0 && (
@@ -407,7 +489,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
             const ex = fields.find((x) => x.field_key === f.key);
             const isManual = ex?.method === "manual";
             const base = ex && ex.value != null ? String(ex.value) : "";
-            const edited = (fieldEdits[f.key] ?? "").trim() !== "" && fieldEdits[f.key] !== base;
+            const edited = (fieldEdits[f.key] ?? base).trim() !== base;
             const aiSug = aiSuggestions[f.key];
             const fieldLoading = fieldAiLoading[f.key];
             const fieldMsg = fieldAiMsg[f.key];
@@ -422,7 +504,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                         {t.fieldStatus.manual}
                       </span>
                     )}
-                    {aiSug && (
+                    {aiSug && aiSug.value !== null && (
                       <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-300">
                         {t.fieldStatus.aiSuggestion} ({aiSug.confidence.toFixed(2)})
                       </span>
@@ -446,10 +528,10 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                 <div className="flex gap-1">
                   <input
                     type="number"
-                    value={fieldEdits[f.key] ?? ""}
-                    onChange={(e) =>
-                      setFieldEdits((prev) => ({ ...prev, [f.key]: e.target.value }))
-                    }
+                    value={fieldEdits[f.key] ?? base}
+                    onChange={(e) => {
+                      setFieldEdits(prev=>({...prev,[f.key]:e.target.value}));
+                    }}
                     placeholder={base ? base : t.detail.placeholderEmpty}
                     className={`flex-1 min-w-0 px-2 py-1 border rounded text-sm tabular-nums ${
                       aiSug ? "border-indigo-400 bg-indigo-50"
@@ -458,7 +540,7 @@ export default function EditableRunDetail({ detail }: { detail: RunDetail }) {
                     }`}
                   />
                 </div>
-                {aiSug && (
+                {aiSug && aiSug.value !== null && (
                   <div className="mt-1 flex items-start gap-1.5">
                     <div className="flex-1 min-w-0">
                       {aiSug.evidence && (

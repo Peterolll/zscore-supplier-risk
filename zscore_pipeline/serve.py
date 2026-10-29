@@ -78,6 +78,7 @@ def _build_profile(args: argparse.Namespace, source_file: str,
         period_type=PeriodType(args.period),
         gaap=Gaap(args.gaap),
         currency=args.currency,
+        flow_basis=args.flow_basis,
         source_file=source_file,
         note=note,
         listed=args.listed,
@@ -95,6 +96,7 @@ def main() -> int:
     ap.add_argument("--gaap", required=True,
                     choices=["cas", "ifrs", "tw_gaap", "hk_gaap", "other"])
     ap.add_argument("--currency", default="CNY")
+    ap.add_argument("--flow-basis", choices=["ytd", "quarter"], default="ytd")
     ap.add_argument("--note", default="")
     ap.add_argument("--listed", action="store_true",
                     help="上市公司 → 原始 Altman Z（X4 用股权市值/总负债）")
@@ -124,6 +126,27 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "ENGINE_ERROR",
                           "message": repr(e)}, ensure_ascii=False))
         return 4
+
+    if len(args.file)>1 and all(p.lower().endswith('.pdf') for p in args.file):
+        from pypdf import PdfReader
+        ranges=[];offset=0
+        for original in args.file:
+            count=len(PdfReader(original).pages)
+            ranges.append((offset,offset+count,original));offset+=count
+        seen=set()
+        for evidence in r['extraction'].candidates + [p for f in r['extraction'].fields.values() for p in f.provenance]:
+            if id(evidence) in seen:continue
+            seen.add(id(evidence))
+            page=evidence.get('page')
+            if page is None:continue
+            for start,stop,original in ranges:
+                if start<=page<stop:
+                    evidence['source_file']=original;evidence['page']=page-start;break
+        for field in r['extraction'].fields.values():
+            locations={(p.get('source_file'),p.get('page')) for p in field.provenance}
+            if len(locations)==1:field.source_page=next(iter(locations))[1]
+        if input_path not in args.file:
+            os.unlink(input_path)
 
     out = {
         "ok": True,

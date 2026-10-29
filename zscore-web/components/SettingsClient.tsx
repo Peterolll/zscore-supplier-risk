@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { visionModelFor } from "@/lib/ai-endpoints";
 import { useRouter } from "next/navigation";
 import { IconWarn, IconPlug, IconCheck, IconX } from "./Icons";
 
@@ -20,6 +21,7 @@ interface MaskedConfig {
   text_model: string;
   masked_key: string;
   configured: boolean;
+  available_models?: string[];
 }
 
 export default function SettingsClient({
@@ -34,10 +36,12 @@ export default function SettingsClient({
   // 表单状态
   const [provider, setProvider] = useState(initialConfig.provider || "zhipu");
   const [baseUrl, setBaseUrl] = useState(initialConfig.base_url || "");
-  const [visionModel, setVisionModel] = useState(initialConfig.vision_model || "");
+  const visionModel = visionModelFor(baseUrl);
+  const [availableModels,setAvailableModels]=useState<string[]>(initialConfig.available_models ?? []);
+  const [loadingModels,setLoadingModels]=useState(false);
   const [textModel, setTextModel] = useState(initialConfig.text_model || "");
   const [apiKey, setApiKey] = useState("");
-  const [testModel, setTestModel] = useState(initialConfig.text_model || initialConfig.vision_model || "");
+  const [testModel, setTestModel] = useState(initialConfig.text_model || initialConfig.vision_model);
 
   // UI 状态
   const [saving, setSaving] = useState(false);
@@ -53,13 +57,24 @@ export default function SettingsClient({
     if (preset) {
       if (!baseUrl || confirm("切换 Provider 会覆盖当前的 API 地址和模型名，是否继续？")) {
         setBaseUrl(preset.base_url);
-        setVisionModel(preset.vision_model);
         setTextModel(preset.text_model);
-        setTestModel(preset.text_model || preset.vision_model);
+        setTestModel(visionModelFor(preset.base_url));
       }
     }
     setMsg("");
     setTestResult(null);
+  }
+
+  async function handleLoadModels() {
+    setLoadingModels(true);setMsg("");
+    try {
+      const response=await fetch("/api/settings/ai-key/models",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({base_url:baseUrl.trim(),api_key:apiKey.trim() || undefined})});
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error || "模型列表获取失败");
+      setAvailableModels(data.models);
+      setMsg(`已读取 ${data.models.length} 个可用模型，请选择文本模型后保存`);
+    }catch(error){setMsg(error instanceof Error ? error.message : "模型列表获取失败");}
+    finally{setLoadingModels(false);}
   }
 
   // 测试连接
@@ -83,7 +98,7 @@ export default function SettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           useSaved
-            ? { use_saved: true }
+            ? { use_saved: true, model: testModel.trim() }
             : { base_url: baseUrl.trim(), api_key: apiKey.trim(), model: testModel.trim() }
         ),
       });
@@ -110,7 +125,7 @@ export default function SettingsClient({
 
   // 保存配置
   async function handleSave() {
-    if (!apiKey.trim()) {
+    if (!apiKey.trim() && !currentConfig.configured) {
       setMsg("请输入 API Key");
       return;
     }
@@ -134,7 +149,7 @@ export default function SettingsClient({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setMsg("保存失败：" + (data.error || res.status));
+        setMsg("保存失败：" + (data.message || data.error || res.status));
         return;
       }
       setMsg("保存成功");
@@ -211,7 +226,7 @@ export default function SettingsClient({
             <div>
               <span className="text-gray-500">视觉模型</span>
               <code className="ml-2 px-1.5 py-0.5 bg-gray-100 rounded">
-                {currentConfig.vision_model}
+                GLM-4V-Flash
               </code>
             </div>
             <div>
@@ -296,8 +311,8 @@ export default function SettingsClient({
             <input
               type="text"
               value={visionModel}
-              onChange={(e) => setVisionModel(e.target.value)}
-              placeholder="gpt-4o-mini / glm-4v-flash / ..."
+              readOnly
+              title="分类与图像抽取固定使用 GLM-4V-Flash，当前端点须支持该模型"
               className={inputClass}
             />
           </div>
@@ -305,11 +320,15 @@ export default function SettingsClient({
             <label className={labelClass}>文本模型 (Text)</label>
             <input
               type="text"
-              value={textModel}
+              list="available-text-models" value={textModel}
               onChange={(e) => setTextModel(e.target.value)}
               placeholder="gpt-4o-mini / glm-4-flash / ..."
               className={inputClass}
             />
+            <datalist id="available-text-models">{availableModels.map(id=><option key={id} value={id}/>)}</datalist>
+            <button type="button" onClick={handleLoadModels} disabled={loadingModels} className="mt-2 text-blue-600 underline disabled:opacity-50">{loadingModels ? "正在读取…" : "读取当前 Key 可用模型"}</button>
+            {availableModels.length>0 && <select aria-label="可用文本模型" value={availableModels.includes(textModel)?textModel:""} onChange={e=>{setTextModel(e.target.value);setTestModel(e.target.value);}} className="ml-3 border rounded p-1 max-w-full"><option value="" disabled>请选择实际可用的文本模型</option>{availableModels.map(id=><option key={id} value={id}>{id}</option>)}</select>}
+
           </div>
         </div>
 
@@ -413,7 +432,7 @@ export default function SettingsClient({
             <li><b>未知即 null：</b>找不到的字段 value 设为 null，禁止猜测</li>
             <li><b>evidence 原文追溯：</b>每条结果必须附带财报原文行，便于人工核对</li>
             <li><b>confidence 分档：</b>1.0=直接命中 / 0.85=子项求和 / 0.7=会计恒等推算</li>
-            <li><b>会计恒等推导：</b>留存收益=盈余公积+未分配利润；EBIT=利润总额+利息费用</li>
+            <li><b>会计恒等推导：</b>留存收益=盈余公积+未分配利润；EBIT 优先采用原文，否则为税前利润+利息费用，或净利润+所得税费用+利息费用。财务费用仅作参考。</li>
             <li><b>温度参数：</b>temperature=0.1，降低随机性</li>
           </ul>
         </div>
@@ -424,9 +443,9 @@ export default function SettingsClient({
         <h2 className="text-sm font-semibold text-gray-800 mb-2">AI 分析补全功能说明</h2>
         <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
           <li><b>触发条件：</b>分析结果含 <code className="bg-white px-1 rounded">人工补录 / OCR 识别 / 回退推导值</code> 字段时，详情页顶部出现「AI 分析补全」按钮</li>
-          <li><b>双路并行：</b>视觉 OCR（PDF→PNG→Vision 模型）+ 文本分析（PDF 全文→Text 模型）</li>
+          <li><b>按需调用：</b>上传时用 GLM-4V-Flash 完成方向分类与图像抽取；点击 AI 补全或重新核验后，才将结构化证据交给配置的文本模型。</li>
           <li><b>合并优先级：</b>OCR 结果 &gt; 文本分析 &gt; 会计推算</li>
-          <li><b>用户确认：</b>AI 建议值以蓝色高亮填入输入框，用户核对后点击「保存修改」才会写入</li>
+          <li><b>用户确认：</b>提取结果先进入待确认列表，可修改或取消，点击「确认」后才同步财务字段。</li>
           <li><b>数据安全：</b>API Key 存储在本机 <code className="bg-white px-1 rounded">data/ai-config.json</code>，不上传服务器</li>
         </ul>
       </section>

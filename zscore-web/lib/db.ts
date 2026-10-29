@@ -18,7 +18,10 @@ import type {
   FactorRow,
   FieldRow,
   RunDetail,
+  SourceEvidence,
+  Candidate,
 } from "./types";
+import { audit } from "./audit";
 import { computeZ, zoneOf, modelForProfile } from "./zscore";
 
 /**
@@ -125,6 +128,34 @@ export function getDb(): DatabaseSync {
   if (!colNames.includes("equity_value")) {
     db.exec("ALTER TABLE supplier ADD COLUMN equity_value REAL");
   }
+  const runCols = new Set((db.prepare("PRAGMA table_info(zscore_run)").all() as { name: string }[]).map(c => c.name));
+  if (!runCols.has("profile_snapshot")) db.exec("ALTER TABLE zscore_run ADD COLUMN profile_snapshot TEXT");
+  if (!runCols.has("ebit_derived")) {
+    db.exec("ALTER TABLE zscore_run ADD COLUMN ebit_derived INTEGER DEFAULT 0");
+    db.exec("UPDATE zscore_run SET ebit_derived = 1 WHERE NOT EXISTS (SELECT 1 FROM financial_field WHERE run_id=zscore_run.id AND field_key='ebit') OR id IN (SELECT run_id FROM financial_field WHERE field_key = 'ebit' AND (method = 'derived' OR evidence LIKE '%PBT%'))");
+  }
+  db.exec(`UPDATE zscore_run SET z_score=NULL,
+    risk_zone=COALESCE((SELECT risk_override FROM result_override WHERE run_id=zscore_run.id AND risk_overridden=1),'unknown')
+    WHERE z_score IS NOT NULL AND (
+      (SELECT COUNT(DISTINCT key) FROM factor WHERE run_id=zscore_run.id AND key IN ('X1','X2','X3','X4') AND value IS NOT NULL) < 4
+      OR (model IN ('Z','Z''') AND NOT EXISTS (SELECT 1 FROM factor WHERE run_id=zscore_run.id AND key='X5' AND value IS NOT NULL)))`);
+  for (const column of ["trace_id", "extraction_json"]) {
+    if (!runCols.has(column)) db.exec(`ALTER TABLE zscore_run ADD COLUMN ${column} TEXT`);
+  }
+  const fieldCols = new Set((db.prepare("PRAGMA table_info(financial_field)").all() as {name:string}[]).map(c=>c.name));
+  for (const column of ["provenance_json","dependencies_json"]) {
+    if (!fieldCols.has(column)) db.exec(`ALTER TABLE financial_field ADD COLUMN ${column} TEXT DEFAULT '[]'`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS run_trace (
+    trace_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT,created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY(run_id) REFERENCES zscore_run(id) ON DELETE CASCADE)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS review_suggestion (
+    id TEXT PRIMARY KEY,run_id TEXT NOT NULL,field_key TEXT NOT NULL,old_value REAL,new_value REAL,payload TEXT NOT NULL,trace_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')), accepted_at TEXT,
+    FOREIGN KEY(run_id) REFERENCES zscore_run(id) ON DELETE CASCADE)`);
+  const suggestionColumns=new Set((db.prepare("PRAGMA table_info(review_suggestion)").all() as {name:string}[]).map(c=>c.name));
+  if(!suggestionColumns.has("dismissed_at"))db.exec("ALTER TABLE review_suggestion ADD COLUMN dismissed_at TEXT");
+
   _db = db;
   return _db;
 }
@@ -134,6 +165,7 @@ export interface AnalysisInput {
     name: string;
     industry_class: string;
     period_type: string;
+    flow_basis?: "ytd" | "quarter";
     gaap: string;
     currency: string;
     source_file?: string;
@@ -157,7 +189,12 @@ export interface AnalysisInput {
     X5?: number | null;
   };
   extraction: {
+    trace_id?: string;
+    candidates?: Candidate[];
+    warnings?: string[];
     fields: Record<string, {
+      provenance?: SourceEvidence[];
+      dependencies?: string[];
       value: number | null;
       evidence: string;
       source_page: number | null;
@@ -225,7 +262,14 @@ function saveAnalysisTx(
   }
 
   const runId = randomUUID();
-  const z = input.zscore;
+  const requiresConfirmation = input.method !== "manual";
+  const z = { ...input.zscore };
+  if (requiresConfirmation) {
+    for (const key of ["X1","X2","X3","X4","X5"] as const) if(z[key] !== undefined) z[key]=null;
+    z.gates_passed=[]; z.gates_failed=["G5_因子完整性"]; z.notes=["提取结果待用户确认，确认前不写入财务数值或计算风险评级"];
+  }
+  z.z_score = computeZ(z, z.model as ZModel);
+  z.risk_zone = zoneOf(z.z_score, z.model as ZModel);
   db.prepare(
     `INSERT INTO zscore_run
       (id, supplier_id, z_score, model, risk_zone, annualized, annualize_factor, method, gates_passed, gates_failed, notes)
@@ -244,6 +288,21 @@ function saveAnalysisTx(
     z.notes.join(",")
   );
 
+  const snapshot = {
+    name: input.profile.name, industry: input.profile.industry_class,
+    period: input.profile.period_type, gaap: input.profile.gaap,
+    currency: input.profile.currency, source_file: input.profile.source_file ?? null,
+    listed: listedFlag, equity_value: equityVal, flow_basis: input.profile.flow_basis ?? "ytd",
+  };
+  const ebit = input.extraction.fields.ebit;
+  const derived = !ebit || ebit.method === "derived" || /PBT/.test(ebit.evidence);
+  db.prepare("UPDATE zscore_run SET profile_snapshot = ?, ebit_derived = ? WHERE id = ?")
+    .run(JSON.stringify(snapshot), derived ? 1 : 0, runId);
+
+  db.prepare("UPDATE zscore_run SET trace_id=?,extraction_json=? WHERE id=?")
+    .run(input.extraction.trace_id ?? null,JSON.stringify(input.extraction),runId);
+  if(input.extraction.trace_id) db.prepare("INSERT INTO run_trace (trace_id,run_id,kind) VALUES (?,?,?)")
+    .run(input.extraction.trace_id,runId,'upload');
   const factorStmt = db.prepare("INSERT INTO factor (id, run_id, key, value) VALUES (?, ?, ?, ?)");
   const factorMap: Record<string, number | null | undefined> = {
     X1: z.X1,
@@ -266,14 +325,24 @@ function saveAnalysisTx(
       randomUUID(),
       runId,
       key,
-      f.value,
-      f.evidence,
-      f.source_page,
+      requiresConfirmation ? null : f.value,
+      requiresConfirmation ? "待确认提取结果" : f.evidence,
+      requiresConfirmation ? null : f.source_page,
       f.method,
-      f.confidence
+      requiresConfirmation ? 0 : f.confidence
     );
+    db.prepare("UPDATE financial_field SET provenance_json=?,dependencies_json=? WHERE run_id=? AND field_key=?")
+      .run(JSON.stringify(requiresConfirmation ? [] : f.provenance ?? []),JSON.stringify(requiresConfirmation ? [] : f.dependencies ?? []),runId,key);
   }
 
+  if(requiresConfirmation) {
+    const statement=db.prepare("INSERT INTO review_suggestion (id,run_id,field_key,old_value,new_value,payload,trace_id) VALUES (?,?,?,?,?,?,?)");
+    for(const [field_key,f] of Object.entries(input.extraction.fields)) if(f.value !== null) {
+      const id=randomUUID();
+      const payload={...f,id,field_key,old_value:null,provenance:f.provenance ?? [],dependencies:f.dependencies ?? []};
+      statement.run(id,runId,field_key,null,f.value,JSON.stringify(payload),input.extraction.trace_id ?? runId);
+    }
+  }
   db.exec("COMMIT");
   return { supplierId, runId };
 }
@@ -285,14 +354,16 @@ export function listSuppliers(): SupplierSummary[] {
   const rows = db
     .prepare(
       `SELECT s.*, r.id AS runId, r.z_score AS zScore, r.model, r.risk_zone AS riskZone,
-              r.method, r.created_at AS runAt
+              r.method, r.created_at AS runAt, r.profile_snapshot
        FROM supplier s
        LEFT JOIN zscore_run r ON r.supplier_id = s.id
-       WHERE r.created_at = (SELECT MAX(created_at) FROM zscore_run WHERE supplier_id = s.id)
+       WHERE r.id = (SELECT id FROM zscore_run WHERE supplier_id = s.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
        ORDER BY r.created_at DESC`
     )
     .all() as unknown as JoinedSupplierRow[];
-  return rows.map((r) => ({
+  return rows.map((row) => {
+    const r = { ...row, ...(row.profile_snapshot ? JSON.parse(row.profile_snapshot) : {period:"unknown",gaap:"unknown",currency:"未知",source_file:null,equity_value:null}) };
+    return ({
     id: r.id,
     name: r.name,
     industry: r.industry as Industry,
@@ -309,10 +380,12 @@ export function listSuppliers(): SupplierSummary[] {
     riskZone: r.riskZone as RiskZone,
     method: r.method,
     runAt: r.runAt,
-  }));
+  });
+  });
 }
 
 interface JoinedSupplierRow extends SupplierRow {
+  profile_snapshot: string | null;
   runId: string;
   zScore: number | null;
   model: string;
@@ -337,10 +410,16 @@ export function getRunDetail(runId: string): RunDetail | null {
   const fields = toPlainList<FieldRow>(
     db
       .prepare(
-        "SELECT field_key, value, evidence, source_page, method, confidence FROM financial_field WHERE run_id = ?"
+        "SELECT field_key, value, evidence, source_page, method, confidence, provenance_json, dependencies_json FROM financial_field WHERE run_id = ?"
       )
       .all(runId)
   );
+  for (const field of fields) {
+    const raw = field as FieldRow & {provenance_json?:string;dependencies_json?:string};
+    field.provenance=JSON.parse(raw.provenance_json || '[]');
+    field.dependencies=JSON.parse(raw.dependencies_json || '[]');
+    delete raw.provenance_json; delete raw.dependencies_json;
+  }
   const override = toPlain<{
     run_id: string;
     risk_override: string | null;
@@ -348,7 +427,15 @@ export function getRunDetail(runId: string): RunDetail | null {
     note: string;
     edited_at: string;
   }>(db.prepare("SELECT * FROM result_override WHERE run_id = ?").get(runId));
-  return { run, supplier, factors, fields, override: override ?? null };
+  // Legacy runs cannot recover their report metadata from the mutable supplier row.
+  const reportSupplier: SupplierRow = run.profile_snapshot
+    ? { ...supplier, ...JSON.parse(run.profile_snapshot) }
+    : { ...supplier, name: supplier.name, industry: run.model === "Z''" ? "service" : "manufacturing",
+        period: "unknown", gaap: "unknown", currency: "未知 / Unknown",
+        source_file: null, equity_value: null, listed: run.model === "Z" ? 1 : 0, metadata_unknown: true };
+  const pendingSuggestions=(db.prepare("SELECT payload FROM review_suggestion WHERE run_id=? AND accepted_at IS NULL AND dismissed_at IS NULL ORDER BY rowid").all(runId) as {payload:string}[])
+    .map(r=>JSON.parse(r.payload)).filter(s=>s.old_value === (fields.find(f=>f.field_key===s.field_key)?.value ?? null));
+  return { run, supplier: reportSupplier, factors, fields, pendingSuggestions, override: override ?? null };
 }
 
 export function getSupplierWithRuns(
@@ -378,357 +465,146 @@ export function getComparison(runIds: string[]): RunDetail[] {
 
 // ---- 结果覆盖 / 重算（网页端人工修正入口）----
 
-function loadFactorMap(db: DatabaseSync, runId: string): Record<string, number | null> {
-  const rows = db
-    .prepare("SELECT key, value FROM factor WHERE run_id = ?")
-    .all(runId) as { key: string; value: number | null }[];
-  const m: Record<string, number | null> = {};
-  for (const r of rows) m[r.key] = r.value;
-  return m;
-}
-
-/**
- * 从 financial_field 表读取某个字段的值（用于重算 X4 分子）。
- */
-function loadFieldValue(db: DatabaseSync, runId: string, fieldKey: string): number | null {
-  const r = db
-    .prepare("SELECT value FROM financial_field WHERE run_id = ? AND field_key = ?")
-    .get(runId, fieldKey) as { value: number | null } | undefined;
-  return r ? r.value : null;
-}
-
-/**
- * 重算 X4 分子：上市优先 equity_value（市值），缺失回退 equity_total（账面）；
- * 非上市用 equity_total（账面）。与 Python m6_calc.py 口径一致。
- */
-function resolveX4Numerator(
-  db: DatabaseSync,
-  runId: string,
-  listed: boolean,
-  equityValueOverride: number | null | undefined
-): { num: number | null; source: string } {
-  if (listed) {
-    if (equityValueOverride != null) {
-      return { num: equityValueOverride, source: "市值(上市)" };
-    }
-    const ev = loadFieldValue(db, runId, "equity_value");
-    if (ev != null) return { num: ev, source: "市值(上市)" };
-    const eq = loadFieldValue(db, runId, "equity_total");
-    return { num: eq, source: "账面权益(市值缺失回退)" };
-  }
-  const eq = loadFieldValue(db, runId, "equity_total");
-  return { num: eq, source: "账面权益(非上市)" };
-}
-
-/**
- * 由底层财务字段（financial_field）完整重算 X1–X5 与 Z，并写回 factor / zscore_run。
- * 口径严格对齐 Python m6_calc.py：
- *   X1 = (流动资产−流动负债) / 总资产
- *   X2 = 留存收益 / 总资产
- *   X3 = EBIT(已年化) / 总资产
- *   X4 = 权益分子 / 总负债（上市=股权市值，缺失回退账面权益；非上市=账面权益）
- *   X5 = 营业收入(已年化) / 总资产
- * - 流量字段(Ebit/营收)按 run.annualize_factor 年化；存量字段不年化。
- * - 尊重 result_override 的人工风险覆盖：已覆盖则保留覆盖值。
- * - 缺失因子按 0 计入（与引擎 safe_div + term 跳过行为一致）。
- */
-function recomputeAllFromFields(
-  db: DatabaseSync,
-  runId: string,
-  industry: Industry,
-  listed: boolean,
-  equityValueOverride: number | null | undefined
-): { model: ZModel; z: number | null; zone: RiskZone } {
-  const model = modelForProfile(listed, industry);
-  const run = toPlain<RunRow>(
-    db.prepare("SELECT * FROM zscore_run WHERE id = ?").get(runId)
-  )!;
-  const factor = run.annualize_factor || 1.0;
-
-  const fv = (k: string): number | null => loadFieldValue(db, runId, k);
-  const CA = fv("current_assets");
-  const CL = fv("current_liabilities");
-  const TA = fv("total_assets");
-  const TL = fv("total_liabilities");
-  const RE = fv("retained_earnings");
-  const EQ = fv("equity_total");
-  const REV = fv("revenue");
-  const EBIT = fv("ebit");
-
-  // 修复（2026-09-10，对齐 Python m6_calc）：缺失的流量字段按 0 参与年化与除法，
-  // 会让 X3/X5 得到 0（而非 null）→ Z 被静默压低。缺则保持 null，由 computeZ 跳过。
-  const ebit_ann = EBIT != null ? EBIT * factor : null;
-  const rev_ann = REV != null ? REV * factor : null;
-
-  const eqNum =
-    listed
-      ? (equityValueOverride != null
-          ? equityValueOverride
-          : (fv("equity_value") != null ? fv("equity_value") : EQ))
-      : EQ;
-
-  const safeDiv = (a: number | null, b: number | null): number | null => {
-    if (a == null || b == null || b === 0) return null;
-    return a / b;
-  };
-
-  const xs: Record<string, number | null> = {
-    X1: safeDiv((CA ?? 0) - (CL ?? 0), TA),
-    X2: safeDiv(RE, TA),
-    X3: safeDiv(ebit_ann, TA),
-    X4: safeDiv(eqNum, TL),
-    X5: safeDiv(rev_ann, TA),
-  };
-
-  // 写回 factor 表（5 项全部 upsert）
-  for (const [k, v] of Object.entries(xs)) {
-    const existing = db
-      .prepare("SELECT id FROM factor WHERE run_id = ? AND key = ?")
-      .get(runId, k) as { id: string } | undefined;
-    if (existing) {
-      db.prepare("UPDATE factor SET value = ? WHERE run_id = ? AND key = ?").run(v, runId, k);
-    } else {
-      db.prepare("INSERT INTO factor (id, run_id, key, value) VALUES (?, ?, ?, ?)").run(
-        randomUUID(),
-        runId,
-        k,
-        v
-      );
-    }
-  }
-
-  const z = computeZ(xs, model);
-  const computedZone = zoneOf(z, model);
-  const ov = db
-    .prepare("SELECT risk_override, risk_overridden FROM result_override WHERE run_id = ?")
-    .get(runId) as { risk_override: string | null; risk_overridden: number } | undefined;
-  const zone: RiskZone =
-    ov && ov.risk_overridden ? (ov.risk_override as RiskZone) : computedZone;
-
-  db.prepare(
-    "UPDATE zscore_run SET model = ?, z_score = ?, risk_zone = ? WHERE id = ?"
-  ).run(model, z, zone, runId);
-
-  return { model, z, zone };
-}
-
-/**
- * 由 listed + 行业 + X 因子重算 Z 与风险区（与 Python 端 m6_calc 对齐）。
- * - 始终用对应口径重算 X4 并写回 factor 表：
- *   上市 → equity_value(市值) / total_liabilities（缺失回退 equity_total 并标注）
- *   非上市 → equity_total(账面) / total_liabilities
- * - 缺失因子按 0 计入（与引擎 safe_div + term 跳过行为一致）。
- *
- * @deprecated 改用 recomputeAllFromFields（由财务字段完整重算，含 X1–X5）。
- *   保留用于仅需切换上市/非上市口径、字段不变的轻量重算。
- */
-function recompute(
-  db: DatabaseSync,
-  runId: string,
-  industry: string,
-  x: Record<string, number | null | undefined>,
-  listed: boolean,
-  equityValueOverride: number | null | undefined
-): { model: ZModel; z: number | null; zone: RiskZone } {
-  const model = modelForProfile(listed, industry);
-  // 始终用当前口径重算 X4，保证切换上市/非上市时 factor 表 X4 与模型一致
-  const tl = loadFieldValue(db, runId, "total_liabilities");
-  const { num, source } = resolveX4Numerator(db, runId, listed, equityValueOverride);
-  let newX4: number | null = null;
-  if (num != null && tl != null && tl !== 0) {
-    newX4 = num / tl;
-  }
-  x.X4 = newX4;
-  // 写回 factor 表
-  const existing = db
-    .prepare("SELECT id FROM factor WHERE run_id = ? AND key = ?")
-    .get(runId, "X4") as { id: string } | undefined;
-  if (existing) {
-    db.prepare("UPDATE factor SET value = ? WHERE run_id = ? AND key = ?").run(
-      newX4,
-      runId,
-      "X4"
-    );
-  } else {
-    db.prepare(
-      "INSERT INTO factor (id, run_id, key, value) VALUES (?, ?, ?, ?)"
-    ).run(randomUUID(), runId, "X4", newX4);
-  }
-  void source;
-  const z = computeZ(x as any, model);
-  return { model, z, zone: zoneOf(z, model) };
-}
-
-/**
- * 写回供应商行业分类 + 上市标识：更新 supplier.industry/listed，并对该供应商所有 run
- * 由底层财务字段按新模型重算 Z / 风险区；若某 run 已有人工风险覆盖，则保留覆盖值。
- * 不在内部开启事务，便于被 saveResultOverride 的既有事务复用（避免嵌套事务）。
- */
-function applyIndustryToRuns(
-  db: DatabaseSync,
-  supplierId: string,
-  industry: Industry,
-  listed: boolean,
-  equityValueOverride: number | null | undefined
-): void {
-  db.prepare("UPDATE supplier SET industry = ?, listed = ? WHERE id = ?").run(
-    industry,
-    listed ? 1 : 0,
-    supplierId
-  );
-  const runs = toPlainList<RunRow>(
-    db.prepare("SELECT * FROM zscore_run WHERE supplier_id = ?").all(supplierId)
-  );
-  for (const r of runs) {
-    recomputeAllFromFields(db, r.id, industry, listed, equityValueOverride);
-  }
-}
-
-/** 公开入口：独立事务包装 applyIndustryToRuns。 */
-export function updateSupplierIndustry(
-  supplierId: string,
-  industry: Industry,
-  listed: boolean = false,
-  equityValueOverride: number | null | undefined = undefined
-): void {
-  const db = getDb();
-  db.exec("BEGIN TRANSACTION");
-  try {
-    applyIndustryToRuns(db, supplierId, industry, listed, equityValueOverride);
-    db.exec("COMMIT");
-  } catch (e) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      /* ignore */
-    }
-    throw e;
-  }
-}
-
 export interface SaveOverrideInput {
-  x?: Record<string, number | null>; // 修改的 X1–X5（兼容旧路径；未提供的键保持原值）
-  fields?: Record<string, number | null>; // 人工补录/修正底层财务字段（如 total_assets）；标记 method=manual 并完整重算 X1–X5 与 Z
-  riskOverride?: RiskZone | null; // 人工覆盖风险区；null/undefined = 跟随计算
+  acceptedSuggestions?: Record<string,string>;
+  fields?: Record<string, number | null>;
+  riskOverride?: RiskZone | null;
   note?: string;
-  industry?: Industry; // 若提供且与当前不同，写回供应商行业并重算所有 run
-  listed?: boolean; // 若提供，写回供应商上市标识并重算所有 run
-  equityValue?: number | null; // 写回供应商股权价值（上市 X4 分子）
+  industry?: Industry;
+  listed?: boolean;
+  equityValue?: number | null;
 }
 
-/**
- * 保存一次人工修正（写穿式）：
- *  - industry/listed 变化 → applyIndustryToRuns（先重算所有 run，含本 run 的新模型）
- *  - equityValue 写回 supplier.equity_value
- *  - 更新本 run 的 factor 行（被修改的 X 值）
- *  - 用新模型 + 有效 X 重算 Z；risk_override 存在则覆盖风险区
- *  - 写 result_override（风险覆盖值 / 覆盖标志 / 备注），用于界面「人工覆盖」标记
- */
 export function saveResultOverride(runId: string, input: SaveOverrideInput): void {
   const db = getDb();
   db.exec("BEGIN TRANSACTION");
   try {
-    const run = db.prepare("SELECT * FROM zscore_run WHERE id = ?").get(runId) as RunRow | undefined;
-    if (!run) throw new Error("RUN_NOT_FOUND");
-    const supplier = db
-      .prepare("SELECT * FROM supplier WHERE id = ?")
-      .get(run.supplier_id) as SupplierRow | undefined;
-    if (!supplier) throw new Error("SUPPLIER_NOT_FOUND");
-
-    const newIndustry = input.industry ?? (supplier.industry as Industry);
-    const newListed = input.listed ?? (supplier.listed === 1);
-
-    // 先写 equityValue（若有），让后续 recompute / applyIndustryToRuns 能用市值重算 X4
-    if (input.equityValue !== undefined) {
-      db.prepare("UPDATE supplier SET equity_value = ? WHERE id = ?").run(
-        input.equityValue,
-        supplier.id
-      );
-      supplier.equity_value = input.equityValue;
+    const detail = getRunDetail(runId);
+    if (!detail) throw new Error("RUN_NOT_FOUND");
+    const { run } = detail;
+    const risk = input.riskOverride === undefined ? detail.override?.risk_override ?? null : input.riskOverride;
+    const writeOverride = () => db.prepare(
+      `INSERT INTO result_override (run_id,risk_override,risk_overridden,note,edited_at) VALUES (?,?,?,?,datetime('now'))
+       ON CONFLICT(run_id) DO UPDATE SET risk_override=excluded.risk_override,risk_overridden=excluded.risk_overridden,note=excluded.note,edited_at=excluded.edited_at`
+    ).run(runId, risk, Number(risk !== null), input.note ?? detail.override?.note ?? "");
+    const hasCalculationChange = Object.keys(input.fields ?? {}).length > 0 ||
+      (input.industry !== undefined && input.industry !== detail.supplier.industry) ||
+      (input.listed !== undefined && input.listed !== (detail.supplier.listed === 1)) ||
+      (input.equityValue !== undefined && input.equityValue !== detail.supplier.equity_value);
+    if (!hasCalculationChange) {
+      db.prepare("UPDATE zscore_run SET risk_zone=? WHERE id=?")
+        .run(risk ?? zoneOf(run.z_score, run.model), runId);
+      writeOverride();
+      db.exec("COMMIT");
+      return;
     }
-    const equityValForRecompute =
-      input.equityValue !== undefined ? input.equityValue : supplier.equity_value;
-
-    if (
-      (input.industry && input.industry !== supplier.industry) ||
-      (input.listed !== undefined && input.listed !== (supplier.listed === 1))
-    ) {
-      applyIndustryToRuns(db, supplier.id, newIndustry, newListed, equityValForRecompute);
-      Object.assign(
-        supplier,
-        db.prepare("SELECT * FROM supplier WHERE id = ?").get(supplier.id)
-      );
+    const profile = { ...detail.supplier };
+    profile.industry = input.industry ?? profile.industry;
+    profile.listed = input.listed === undefined ? profile.listed : Number(input.listed);
+    if (input.equityValue !== undefined) profile.equity_value = input.equityValue;
+    const patch = { ...input.fields };
+    if (Object.hasOwn(patch, "equity_value")) profile.equity_value = patch.equity_value;
+    const writeField = (key: string, value: number | null, method: string, evidence: string) => {
+      const found = db.prepare("SELECT id FROM financial_field WHERE run_id=? AND field_key=?").get(runId, key);
+      if (found) db.prepare("UPDATE financial_field SET value=?, method=?, evidence=?, confidence=?, source_page=NULL WHERE run_id=? AND field_key=?")
+        .run(value, method, evidence, method === "manual" ? 1 : 0.9, runId, key);
+      else db.prepare("INSERT INTO financial_field (id,run_id,field_key,value,method,evidence,confidence) VALUES (?,?,?,?,?,?,?)")
+        .run(randomUUID(), runId, key, value, method, evidence, method === "manual" ? 1 : 0.9);
+    };
+    for (const [key, value] of Object.entries(patch)) {
+      const suggestionId=input.acceptedSuggestions?.[key];
+      const record=suggestionId ? db.prepare("SELECT * FROM review_suggestion WHERE id=? AND run_id=? AND field_key=? AND accepted_at IS NULL AND dismissed_at IS NULL").get(suggestionId,runId,key) as {old_value:number|null;new_value:number|null;payload:string;trace_id:string} | undefined : undefined;
+      const old=detail.fields.find(f=>f.field_key===key)?.value ?? null;
+      if (suggestionId && (!record || record.old_value!==old || record.new_value!==value)) throw new Error("STALE_SUGGESTION");
+      writeField(key,value,record ? JSON.parse(record.payload).method || 'ai_analyze' : 'manual',record ? JSON.parse(record.payload).evidence : '人工补录');
+      const suggested=record ? JSON.parse(record.payload) as {provenance:SourceEvidence[];dependencies:string[];confidence:number} : null;
+      db.prepare("UPDATE financial_field SET provenance_json=?,dependencies_json=?,confidence=?,source_page=? WHERE run_id=? AND field_key=?")
+        .run(JSON.stringify(suggested?.provenance ?? []),JSON.stringify(suggested?.dependencies ?? []),suggested?.confidence ?? 1,suggested?.provenance?.[0]?.page ?? null,runId,key);
+      if(record) {
+        db.prepare("UPDATE review_suggestion SET accepted_at=datetime('now') WHERE id=?").run(suggestionId!);
+        audit(record.trace_id,'review.accept_requested',{run_id:runId,field:key,old_value:old,new_value:value,suggestion_id:suggestionId});
+      } else if (run.trace_id) audit(run.trace_id,'field.edit_requested',{run_id:runId,field:key,old_value:old,new_value:value});
+    }
+    if (input.equityValue !== undefined) writeField("equity_value", input.equityValue, "manual", "人工补录市值");
+    const fields = Object.fromEntries((db.prepare("SELECT field_key,value FROM financial_field WHERE run_id=?").all(runId) as {field_key:string;value:number|null}[]).map(f => [f.field_key,f.value]));
+    const v = (k: string): number | null => Number.isFinite(fields[k]) ? fields[k] : null;
+    const retained=detail.fields.find(f=>f.field_key==='retained_earnings');
+    if (!Object.hasOwn(patch,'retained_earnings') &&
+        (Object.hasOwn(patch,'surplus_reserve') || Object.hasOwn(patch,'undistributed_profit')) &&
+        (!retained || retained.method==='derived' || retained.dependencies?.length)) {
+      const surplus=v('surplus_reserve'),profit=v('undistributed_profit');
+      fields.retained_earnings=surplus===null || profit===null ? null : surplus+profit;
+      writeField('retained_earnings',fields.retained_earnings,'derived','盈余公积+未分配利润（组件不全则待确认）');
+      const roots=db.prepare("SELECT provenance_json FROM financial_field WHERE run_id=? AND field_key IN ('surplus_reserve','undistributed_profit')").all(runId) as {provenance_json:string}[];
+      db.prepare("UPDATE financial_field SET provenance_json=?,dependencies_json=? WHERE run_id=? AND field_key='retained_earnings'")
+        .run(JSON.stringify(roots.flatMap(f=>JSON.parse(f.provenance_json || '[]'))),JSON.stringify(['surplus_reserve','undistributed_profit']),runId);
+    }
+    let derived = run.ebit_derived === 1;
+    if (Object.hasOwn(patch, "ebit")) {
+      const row=db.prepare("SELECT dependencies_json FROM financial_field WHERE run_id=? AND field_key='ebit'").get(runId) as {dependencies_json:string};
+      derived=JSON.parse(row.dependencies_json || '[]').some((k:string)=>['profit_before_tax','net_profit','interest_expense'].includes(k));
+    }
+    if (derived && !Object.hasOwn(patch,"ebit") && ["profit_before_tax","interest_expense","net_profit","income_tax"].some(k=>Object.hasOwn(patch,k))) {
+      const parts=v("profit_before_tax")!==null ? ["profit_before_tax","interest_expense"] : ["net_profit","income_tax","interest_expense"];
+      const complete=parts.every(k=>v(k)!==null);
+      fields.ebit=complete ? parts.reduce((sum,k)=>sum+v(k)!,0) : null;
+      writeField("ebit",fields.ebit,"derived",complete ? parts.join(" + ") : "EBIT推导数据不完整，财务费用不替代利息费用");
+      const origins=db.prepare("SELECT field_key,provenance_json FROM financial_field WHERE run_id=?").all(runId) as {field_key:string;provenance_json:string}[];
+      db.prepare("UPDATE financial_field SET provenance_json=?,dependencies_json=? WHERE run_id=? AND field_key='ebit'")
+        .run(JSON.stringify(origins.filter(f=>parts.includes(f.field_key)).flatMap(f=>JSON.parse(f.provenance_json || '[]'))),JSON.stringify(parts),runId);
     }
 
-    const model = modelForProfile(newListed, newIndustry);
-
-    if (input.fields && Object.keys(input.fields).length) {
-      // 人工补录底层财务字段：写回 financial_field（标记 method=manual），再完整重算 X1–X5 与 Z
-      const upd = db.prepare(
-        "UPDATE financial_field SET value = ?, method = ?, confidence = ?, evidence = ? WHERE run_id = ? AND field_key = ?"
-      );
-      const ins = db.prepare(
-        "INSERT INTO financial_field (id, run_id, field_key, value, evidence, source_page, method, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      );
-      for (const [k, v] of Object.entries(input.fields)) {
-        const ex = db
-          .prepare("SELECT id FROM financial_field WHERE run_id = ? AND field_key = ?")
-          .get(runId, k) as { id: string } | undefined;
-        if (ex) {
-          upd.run(v, "manual", 1.0, "人工补录", runId, k);
-        } else {
-          ins.run(randomUUID(), runId, k, v, "人工补录", null, "manual", 1.0);
-        }
-      }
-      recomputeAllFromFields(db, runId, newIndustry, newListed, equityValForRecompute);
-    } else if (input.x && Object.keys(input.x).length) {
-      // 兼容旧路径：直接改 X1–X5 因子
-      const x = loadFactorMap(db, runId);
-      const upd = db.prepare("UPDATE factor SET value = ? WHERE run_id = ? AND key = ?");
-      const ins = db.prepare(
-        "INSERT INTO factor (id, run_id, key, value) VALUES (?, ?, ?, ?)"
-      );
-      for (const [k, v] of Object.entries(input.x)) {
-        if (x[k] === undefined) ins.run(randomUUID(), runId, k, v);
-        else upd.run(v, runId, k);
-        x[k] = v;
-      }
-      const { z } = recompute(db, runId, newIndustry, x, newListed, equityValForRecompute);
-      db.prepare(
-        "UPDATE zscore_run SET z_score = ?, model = ?, risk_zone = ? WHERE id = ?"
-      ).run(z, model, zoneOf(z, model), runId);
+    const divide = (a: number | null, b: number | null) => a === null || b === null || b <= 0 ? null : a / b;
+    const ca=v("current_assets"), cl=v("current_liabilities"), ta=v("total_assets"), tl=v("total_liabilities");
+    const ebit=v("ebit"), revenue=v("revenue");
+    const x = {
+      X1: divide(ca === null || cl === null ? null : ca-cl, ta),
+      X2: divide(v("retained_earnings"), ta),
+      X3: divide(ebit === null ? null : ebit*run.annualize_factor, ta),
+      X4: divide(profile.listed ? profile.equity_value ?? v("equity_total") : v("equity_total"), tl),
+      X5: divide(revenue === null ? null : revenue*run.annualize_factor, ta),
+    };
+    for (const [key,value] of Object.entries(x)) {
+      db.prepare("DELETE FROM factor WHERE run_id=? AND key=?").run(runId,key);
+      db.prepare("INSERT INTO factor (id,run_id,key,value) VALUES (?,?,?,?)").run(randomUUID(),runId,key,value);
     }
-    // 否则字段未变：若 industry/listed 变化，applyIndustryToRuns 已重算所有 run；否则保持原值。
-
-    // 风险覆盖（叠加在计算结果之上）
-    // 修复：z_score 为 null（数据不足不可计算）时不能回退成 0，
-    // 否则 zoneOf(0) 会再次误判为 "distress"。
-    const currentZ = db.prepare("SELECT z_score FROM zscore_run WHERE id = ?").get(runId) as
-      | { z_score: number | null }
-      | undefined;
-    const zForZone = currentZ?.z_score ?? null;
-    const computedZone = zoneOf(zForZone, model);
-    const overridden = input.riskOverride != null && input.riskOverride !== undefined;
-    const zone: RiskZone = overridden ? (input.riskOverride as RiskZone) : computedZone;
-    db.prepare("UPDATE zscore_run SET risk_zone = ? WHERE id = ?").run(zone, runId);
-
-    db.prepare(
-      `INSERT INTO result_override (run_id, risk_override, risk_overridden, note, edited_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(run_id) DO UPDATE SET
-         risk_override = excluded.risk_override,
-         risk_overridden = excluded.risk_overridden,
-         note = excluded.note,
-         edited_at = datetime('now')`
-    ).run(runId, overridden ? (input.riskOverride as string) : null, overridden ? 1 : 0, input.note ?? "");
-
+    const model = modelForProfile(profile.listed === 1, profile.industry);
+    const z = computeZ(x, model);
+    const passed: string[] = [], failed: string[] = [];
+    const check = (key: string, ok: boolean) => (ok ? passed : failed).push(key);
+    const eq=v("equity_total"), re=v("retained_earnings"), pbt=v("profit_before_tax"), interest=v("interest_expense");
+    const independent=(keys:string[])=>keys.every(k=>{
+      const row=db.prepare("SELECT method,dependencies_json FROM financial_field WHERE run_id=? AND field_key=?").get(runId,k) as {method:string;dependencies_json:string}|undefined;
+      return row && row.method!=='derived' && JSON.parse(row.dependencies_json || '[]').length===0;
+    });
+    if(independent(['total_assets','total_liabilities','equity_total'])) check("G1_复式平衡", ta !== null && ta !== 0 && tl !== null && eq !== null && Math.abs(ta-tl-eq)<=.01*Math.abs(ta));
+    for (const [key,a,b] of [["G2_CA<=TA",ca,ta],["G2_CL<=TL",cl,tl],["G2_EQ<=TA",eq,ta],["G2_RE<=TA",re,ta]] as const)
+      check(key,a !== null && b !== null && a<=b);
+    check("G3_TA>0",ta !== null && ta>0);
+    check("G3_TL>=0",tl !== null && tl>=0);
+    if (ebit !== null && pbt !== null && interest !== null && independent(["ebit","profit_before_tax","interest_expense"])) check("G4_EBIT交叉",Math.abs(ebit-pbt-(interest??0))<=.01*Math.max(Math.abs(ebit),1));
+    const required=["current_assets","current_liabilities","total_assets","total_liabilities","equity_total","retained_earnings","ebit",...(model === "Z''" ? [] : ["revenue"])];
+    check("G5_完整性",required.every(k=>v(k)!==null));
+    for (const [name,keys,subtract] of [
+      ['G6_净利润勾稽',['profit_before_tax','income_tax','net_profit'],true],
+      ['G7_资产分项勾稽',['current_assets','noncurrent_assets','total_assets'],false],
+      ['G8_负债分项勾稽',['current_liabilities','noncurrent_liabilities','total_liabilities'],false],
+    ] as const) {
+      const [a,b,c]=keys.map(v);
+      if(independent([...keys]) && a!==null && b!==null && c!==null)
+        check(name,Math.abs(a+(subtract ? -b : b)-c)<=Math.max(.01,Math.abs(c)*.001));
+    }
+    const notes = [!independent(['total_assets','total_liabilities','equity_total']) ? 'G1_未独立验证：含推算或缺失值' : '',
+      derived ? 'G4_未独立验证：EBIT为派生值' : '', z === null ? "必需因子不完整，Z不可计算" : "已按当前批次字段重新计算",
+      profile.metadata_unknown ? "历史报告元数据未知，须重新上传财报确认" : "",
+      profile.listed && profile.equity_value === null ? "市值缺失，X4使用账面权益近似" : ""].filter(Boolean);
+    db.prepare("UPDATE zscore_run SET profile_snapshot=?,ebit_derived=?,model=?,z_score=?,risk_zone=?,gates_passed=?,gates_failed=?,notes=? WHERE id=?")
+      .run(JSON.stringify(profile),Number(derived),model,z,risk ?? zoneOf(z,model),passed.join(","),failed.join(","),notes.join(","),runId);
+    writeOverride();
+    if(run.trace_id) audit(run.trace_id,'recompute.completed',{run_id:runId,z_score:z,passed,failed});
     db.exec("COMMIT");
   } catch (e) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      /* ignore */
-    }
+    db.exec("ROLLBACK");
     throw e;
   }
 }
@@ -747,6 +623,8 @@ export function deleteSuppliers(ids: string[]): number {
   const placeholders = clean.map(() => "?").join(",");
   db.exec("BEGIN TRANSACTION");
   try {
+    db.prepare(`DELETE FROM run_trace WHERE run_id IN (SELECT id FROM zscore_run WHERE supplier_id IN (${placeholders}))`).run(...clean);
+    db.prepare(`DELETE FROM review_suggestion WHERE run_id IN (SELECT id FROM zscore_run WHERE supplier_id IN (${placeholders}))`).run(...clean);
     db.prepare(
       `DELETE FROM result_override WHERE run_id IN (SELECT id FROM zscore_run WHERE supplier_id IN (${placeholders}))`
     ).run(...clean);

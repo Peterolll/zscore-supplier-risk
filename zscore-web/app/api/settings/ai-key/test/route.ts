@@ -8,7 +8,7 @@
 // 返回: { ok: true, latency_ms, model_response } | { ok: false, error, latency_ms? }
 
 import { NextResponse } from "next/server";
-import { getAiConfig } from "@/lib/ai-config";
+import { getAiConfig, listAvailableModels } from "@/lib/ai-config";
 import { testApiConnection } from "@/lib/ai-client";
 
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     const cfg = getAiConfig();
     baseUrl = cfg.base_url;
     apiKey = cfg.api_key;
-    model = cfg.text_model || cfg.vision_model;
+    model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : cfg.vision_model;
     if (!apiKey) {
       return NextResponse.json(
         { ok: false, error: "NO_API_KEY", message: "未配置 API Key，请先保存" },
@@ -68,6 +68,10 @@ export async function POST(req: Request) {
     model = model.trim();
   }
 
+  try {
+    const ids=await listAvailableModels({base_url:baseUrl,api_key:apiKey});
+    if(!ids.includes(model))return NextResponse.json({ok:false,error:`模型 ${model} 不在当前 Key 可用列表中`},{status:400});
+  }catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:"模型列表获取失败"},{status:502});}
   const result = await testApiConnection(baseUrl, apiKey, model);
 
   if (result.ok) {

@@ -97,6 +97,7 @@ export const LISTED_LABELS: Record<string, string> = {
 };
 
 export const PERIOD_LABELS: Record<string, string> = {
+  unknown: "未知",
   annual: "年度",
   semi: "半年度",
   q1: "一季度",
@@ -106,6 +107,7 @@ export const PERIOD_LABELS: Record<string, string> = {
 };
 
 export const GAAP_LABELS: Record<string, string> = {
+  unknown: "未知",
   cas: "中国企业准则(CAS)",
   ifrs: "国际准则(IFRS)",
   tw_gaap: "台湾准则",
@@ -139,6 +141,7 @@ export const DICT_FIELD_META: Record<
   re_retained_surplus: { label: "盈余公积", desc: "简中 CAS 拆分①（派生留存收益的来源之一）" },
   re_undistributed: { label: "未分配利润", desc: "简中 CAS 拆分②（派生留存收益的来源之一）" },
   profit_before_tax: { label: "税前利润", desc: "PBT，用于 EBIT 推导", kind: "extracted" },
+  finance_expenses: { label: "财务费用", desc: "辅助参考，不直接替代利息费用", kind: "extracted" },
   interest_expense: { label: "利息费用", desc: "用于 EBIT 推导", kind: "extracted" },
   revenue: { label: "营业收入", desc: "流量，需年化", kind: "extracted" },
 };
@@ -149,6 +152,6 @@ export const DERIVED_ONLY_FIELDS: { field: string; label: string; formula: strin
   {
     field: "ebit",
     label: "息税前利润 EBIT",
-    formula: "利润总额(PBT) + 利息费用；无利息费用时 EBIT = PBT（疑似无有息负债）",
+    formula: "原文明示 EBIT 优先；否则税前利润+利息费用，或净利润+所得税费用+利息费用；财务费用不直接替代利息费用",
   },
 ];

@@ -34,15 +34,7 @@ export function activeFactors(model: ZModel): string[] {
   return Object.keys(Z_COEFFICIENTS[model]);
 }
 
-/**
- * 由 X 因子重算 Z。
- *
- * 修复（2026-09-10）：原实现「缺失因子按 0 计入」，当全部计入因子都缺失时
- * 会得到 z=0，再经 zoneOf 判定为 "distress" —— 把「完全没有数据」静默误报成
- * 「高风险」，是信贷场景最危险的失效模式。
- * 现与 Python m6_calc 对齐：计入因子全缺失时返回 null，由 zoneOf 判定为
- * "unknown"（前端展示"数据不足(不可计算)"）。
- */
+/** 所有必需因子存在且有限时才返回正式 Z；否则为 null。 */
 export function computeZ(x: XValues, model: ZModel): number | null {
   const coef = Z_COEFFICIENTS[model];
   const keys = Object.keys(coef);
@@ -50,17 +42,17 @@ export function computeZ(x: XValues, model: ZModel): number | null {
   let counted = 0;
   for (const k of keys) {
     const v = (x as Record<string, number | null | undefined>)[k];
-    if (typeof v === "number") {
+    if (typeof v === "number" && Number.isFinite(v)) {
       z += coef[k] * v;
       counted += 1;
     }
   }
-  return counted === 0 ? null : z;
+  return counted !== keys.length || !Number.isFinite(z) ? null : z;
 }
 
 /** 由 Z 值判定风险区（对齐 config.py _zone）；Z 不可计算（null）时为 "unknown" */
 export function zoneOf(z: number | null, model: ZModel): RiskZone {
-  if (z == null) return "unknown";
+  if (z == null || !Number.isFinite(z)) return "unknown";
   const t = Z_THRESHOLDS[model];
   if (z > t.safe) return "safe";
   if (z > t.grey) return "grey";

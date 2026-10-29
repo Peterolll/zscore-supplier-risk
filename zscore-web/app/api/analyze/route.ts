@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID, createHash } from "node:crypto";
+import { audit } from "@/lib/audit";
 import { runEngine } from "@/lib/engine";
 import { saveAnalysis } from "@/lib/db";
 import { saveDictGaps } from "@/lib/db";
@@ -8,14 +10,16 @@ import type { Industry, Period, Gaap } from "@/lib/types";
 
 export const runtime = "nodejs";
 // 最坏情况：扫描件流水线 3 次 OCR 约 90s + 上传/落盘/复算开销 → 180s 兜底
-export const maxDuration = 180;
+export const maxDuration = 330;
 
 // 上传安全限制
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_FILES = 10;
-const ALLOWED_EXTS = /\.(pdf|pptx|ppt)$/i;
+const ALLOWED_EXTS = /\.(pdf|pptx|xlsx|xlsm)$/i;
 const ALLOWED_MIMES = [
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroEnabled.12",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.ms-powerpoint",
   "application/octet-stream", // 部分系统不识别 pptx MIME
@@ -33,6 +37,7 @@ export async function POST(req: Request) {
   const file = files[0] ?? null;
   const industry = (form.get("industry") as Industry) || "manufacturing";
   const period = (form.get("period") as Period) || "annual";
+  const flowBasis = form.get("flow_basis") === "quarter" ? "quarter" : "ytd";
   const gaap = (form.get("gaap") as Gaap) || "cas";
   const currency = (form.get("currency") as string) || "CNY";
   const listed = form.get("listed") === "1" || form.get("listed") === "true";
@@ -59,12 +64,12 @@ export async function POST(req: Request) {
     }
     if (!ALLOWED_EXTS.test(f.name)) {
       return NextResponse.json(
-        { ok: false, error: "INVALID_TYPE", message: `文件 ${f.name} 不是 PDF/PPTX` },
+        { ok: false, error: "INVALID_TYPE", message: `文件 ${f.name} 不是 PDF/PPTX/XLSX/XLSM` },
         { status: 400 }
       );
     }
     // MIME 校验：允许 application/octet-stream（部分系统不识别 pptx）
-    if (f.type && !ALLOWED_MIMES.includes(f.type)) {
+    if (f.type && !ALLOWED_MIMES.some(m=>m.toLowerCase()===f.type.toLowerCase())) {
       return NextResponse.json(
         { ok: false, error: "INVALID_MIME", message: `文件 ${f.name} MIME 类型不被允许: ${f.type}` },
         { status: 400 }
@@ -72,6 +77,9 @@ export async function POST(req: Request) {
     }
   }
 
+  const traceId=randomUUID();
+  if (files.length>1 && files.some(f=>!/\.pdf$/i.test(f.name)))
+    return NextResponse.json({ok:false,error:"MIXED_FILES",message:"多文件上传仅支持 PDF；Excel 可将各表放入同一工作簿"},{status:400});
   // 落盘上传的财报文件（支持多文件：多张 PDF 由引擎合并；PPTX 单次）
   const uploadsDir = path.join(process.cwd(), "uploads");
   await mkdir(uploadsDir, { recursive: true });
@@ -83,23 +91,24 @@ export async function POST(req: Request) {
     const fpath = path.join(uploadsDir, fname);
     const buf = Buffer.from(await f.arrayBuffer());
     await writeFile(fpath, buf);
+    audit(traceId,"upload.saved",{filename:f.name,bytes:buf.length,sha256:createHash("sha256").update(buf).digest("hex")});
     paths.push(fpath);
     savedNames.push(f.name);
   }
   // 合并场景下的供应商名：取首个文件名（去后缀）
   const displayName =
     (form.get("name") as string) ||
-    (files.length > 1 ? savedNames.join("+") : file!.name.replace(/\.(pdf|pptx|ppt)$/i, "")) ||
+    (files.length > 1 ? savedNames.join("+") : file!.name.replace(/\.(pdf|pptx|xlsx|xlsm)$/i, "")) ||
     "未命名供应商";
 
   // 调用 Python 计算引擎（PDF / PPTX 均可；多 PDF 自动合并）
   const result = await runEngine({
-    pdfPaths: paths, name: displayName, industry, period, gaap, currency, listed, equityValue,
+    traceId, pdfPaths: paths, name: displayName, industry, period, gaap, currency, listed, equityValue, flowBasis,
   });
   if (!result.ok) {
     const status = result.error === "OCR_UNAVAILABLE" ? 422 : 500;
     return NextResponse.json(
-      { ok: false, error: result.error, message: result.message },
+      { ok: false, error: result.error, message: result.message, trace_id:traceId },
       { status }
     );
   }
@@ -110,6 +119,7 @@ export async function POST(req: Request) {
       name: displayName,
       industry_class: result.profile!.industry_class,
       period_type: result.profile!.period_type,
+      flow_basis: flowBasis,
       gaap: result.profile!.gaap,
       currency: result.profile!.currency,
       source_file: paths.join("|"),
@@ -132,6 +142,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    trace_id: traceId,
     supplierId: saved.supplierId,
     runId: saved.runId,
     result,

@@ -11,11 +11,13 @@ export default function UploadForm() {
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("manufacturing");
   const [period, setPeriod] = useState("annual");
+  const [flowBasis, setFlowBasis] = useState("ytd");
   const [gaap, setGaap] = useState("cas");
   const [currency, setCurrency] = useState(lang === "en" ? "USD" : "CNY");
   const [listed, setListed] = useState(false);
   const [equityValue, setEquityValue] = useState("");
   const [loading, setLoading] = useState(false);
+  const [traceId,setTraceId]=useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -24,7 +26,7 @@ export default function UploadForm() {
       const merged = [...prev, ...picked];
       // 默认名称取首个文件（去后缀）
       if (!name && merged.length) {
-        setName(merged[0].name.replace(/\.(pdf|pptx|ppt)$/i, ""));
+        setName(merged[0].name.replace(/\.(pdf|pptx|xlsx|xlsm)$/i, ""));
       }
       return merged;
     });
@@ -45,9 +47,10 @@ export default function UploadForm() {
     setErr(null);
     const fd = new FormData();
     for (const f of files) fd.append("file", f);
-    fd.append("name", name || files[0].name.replace(/\.(pdf|pptx|ppt)$/i, ""));
+    fd.append("name", name || files[0].name.replace(/\.(pdf|pptx|xlsx|xlsm)$/i, ""));
     fd.append("industry", industry);
     fd.append("period", period);
+    fd.append("flow_basis", period.startsWith("q") ? flowBasis : "ytd");
     fd.append("gaap", gaap);
     fd.append("currency", currency);
     fd.append("listed", listed ? "1" : "0");
@@ -55,6 +58,7 @@ export default function UploadForm() {
 
     const res = await fetch("/api/analyze", { method: "POST", body: fd });
     const data = await res.json();
+    setTraceId(data.trace_id || null);
     setLoading(false);
 
     if (data.ok) {
@@ -71,12 +75,19 @@ export default function UploadForm() {
 
   return (
     <form onSubmit={submit} className="space-y-3 bg-white border rounded-xl p-5 shadow-sm">
+      {period.startsWith("q") && <label className="block text-sm">
+        {lang === "en" ? "Income statement period" : "利润表金额覆盖期间"}
+        <select value={flowBasis} onChange={(e) => setFlowBasis(e.target.value)} className={selectCls}>
+          <option value="ytd">{lang === "en" ? "Year to date" : "年初至今累计"}</option>
+          <option value="quarter">{lang === "en" ? "Single quarter" : "仅本季度（3个月）"}</option>
+        </select>
+      </label>}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{t.upload.fileLabel}</label>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{lang === "en" ? "Financial reports (PDF / PPTX / Excel .xlsx / .xlsm)" : "财务报表（PDF / PPTX / Excel .xlsx / .xlsm）"}</label>
         <input
           type="file"
           multiple
-          accept="application/pdf,.pdf,.pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
+          accept=".pdf,.pptx,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={onPick}
           className="block w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
         />
@@ -190,6 +201,7 @@ export default function UploadForm() {
         </div>
       </div>
 
+      {traceId && err && <a target="_blank" href={`/api/traces/${traceId}`} className="block text-xs text-blue-600 underline">查看本次分析日志（{traceId}）</a>}
       {err && (
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
           {err}

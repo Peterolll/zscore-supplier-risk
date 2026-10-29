@@ -6,6 +6,7 @@ m6_calc.py — Z-Score 计算（含流量年化）
 - 上市：统一原始 Altman Z（X4 用股权市值 / 总负债），与行业无关，恒为 5 因子。
 """
 from __future__ import annotations
+import math
 
 from .config import (
     Z_PRIME_COEF, Z_DOUBLE_PRIME_COEF, Z_ORIGINAL_COEF,
@@ -65,9 +66,10 @@ def calc(profile: SupplierProfile, ext: ExtractionResult, factor: float) -> ZSco
     def safe_div(a, b):
         if a is None or b is None:
             return None
-        if b == 0:
+        if not math.isfinite(a) or not math.isfinite(b) or b <= 0:
             return None
-        return a / b
+        quotient = a / b
+        return quotient if math.isfinite(quotient) else None
 
     # 修复：原 (CA or 0) - (CL or 0) 会把缺失的单项当 0 → X1 被算成 -CL/TA 或 CA/TA 的
     # 伪值（表面有数、实际少了一半营运资本）。缺任一项即视为不可计算，保持 None。
@@ -90,13 +92,10 @@ def calc(profile: SupplierProfile, ext: ExtractionResult, factor: float) -> ZSco
     available = [n for n in required if xs.get(n) is not None]
     for name in required:
         if xs.get(name) is None:
-            term_notes.append(f"{name} 缺失（对应字段未提取）→ 未计入 Z")
+            term_notes.append(f"{name} 缺失（对应字段未提取）→ Z 不可计算")
 
-    # 关键修复：所有计入因子都缺失时，Z 不可计算。
-    # 原实现会返回 z=0.0 并被 _zone 判为 "distress" —— 把"完全没数据"
-    # 静默误报成"高风险"，是信贷场景最危险的失效模式。
-    # 现改为：z_score=None、risk_zone="unknown"，前端显示"数据不足(不可计算)"。
-    if not available:
+    # 必需因子必须齐全；部分贡献不能作为完整模型评分。
+    if len(available) != len(required):
         return ZScoreResult(
             profile_name=profile.name, model=model,
             X1=X1, X2=X2, X3=X3, X4=X4, X5=X5,
@@ -104,7 +103,7 @@ def calc(profile: SupplierProfile, ext: ExtractionResult, factor: float) -> ZSco
             annualized=annualized, annualize_factor=factor,
             notes=([f"流量年化因子={factor}（仅 EBIT/营收）"] if annualized else [])
                   + [f"X4 分子口径：{eq_source}"]
-                  + ["Z 不可计算：全部计入因子均缺失，请补充财报字段或改用 AI 补全"]
+                  + ["Z 不可计算：必需因子不完整，请补充财报字段或改用 AI 补全"]
                   + term_notes,
         )
 
@@ -129,7 +128,8 @@ def calc(profile: SupplierProfile, ext: ExtractionResult, factor: float) -> ZSco
     return ZScoreResult(
         profile_name=profile.name, model=model,
         X1=X1, X2=X2, X3=X3, X4=X4, X5=X5,
-        z_score=z, risk_zone=_zone(z, thr),
+        z_score=z if math.isfinite(z) else None,
+        risk_zone=_zone(z, thr) if math.isfinite(z) else "unknown",
         annualized=annualized, annualize_factor=factor,
         notes=([f"流量年化因子={factor}（仅 EBIT/营收）"] if annualized else [])
               + [f"X4 分子口径：{eq_source}"] + notes_extra + term_notes,

@@ -9,6 +9,7 @@ cli.py — 流水线入口 + 基准回归
 """
 from __future__ import annotations
 import json
+import argparse
 from pathlib import Path
 
 from .config import OUTPUT_DIR, GLM_OCR
@@ -27,6 +28,9 @@ def load_profiles() -> list[SupplierProfile]:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--benchmark-overrides", action="store_true", help="仅基准测试：显式启用样本覆盖数据")
+    args = parser.parse_args()
     print(f"GLM-4V-Flash OCR: {'启用' if GLM_OCR['enabled'] else '未启用(需 GLM_API_KEY)'}")
     profiles = load_profiles()
     results = []
@@ -36,10 +40,10 @@ def main():
             print(f"[SKIP] {p.name}: 文件不存在 {src}")
             continue
         try:
-            r = process(p, src)
+            r = process(p, src, benchmark_overrides=args.benchmark_overrides)
             results.append(r)
             z = r["zscore"]
-            print(f"[OK]   {p.name}: {z.model}={z.z_score:.4f} ({z.risk_zone}) "
+            print(f"[OK]   {p.name}: {z.model}={z.z_score} ({z.risk_zone}) "
                   f"门禁失败={z.gates_failed} method={r['method'].value}")
         except OCRUnavailable as e:
             # 扫描件需 GLM_API_KEY 跑 OCR（P0-2：非上市样本为已知缺口，暂缓）
@@ -72,13 +76,13 @@ def run_benchmark(results):
             continue
         z = r["zscore"]
         e = exp[name]
-        ok_z = abs(z.z_score - e["z"]) <= max(0.01 * abs(e["z"]), 0.02)
+        ok_z = z.z_score is not None and abs(z.z_score - e["z"]) <= max(0.01 * abs(e["z"]), 0.02)
         ok_risk = z.risk_zone == e["risk"]
         ok_model = z.model == e["model"]
         status = "PASS" if (ok_z and ok_risk and ok_model) else "FAIL"
         if status != "PASS":
             all_pass = False
-        print(f"  [{status}] {name}: Z got={z.z_score:.4f} exp={e['z']} | "
+        print(f"  [{status}] {name}: Z got={z.z_score} exp={e['z']} | "
               f"risk {z.risk_zone}/{e['risk']} | {z.model}")
     print("  → 全部通过 ✅" if all_pass else "  → 存在失败项 ❌")
 
